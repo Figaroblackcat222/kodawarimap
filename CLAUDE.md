@@ -45,8 +45,8 @@ docs/
 
 ### コーディング規約
 
-- フォーマッター: Prettier（設定後に自動適用）
-- Linter: ESLint（設定後）
+- フォーマッター: Prettier（ファイル編集時に自動適用・`.prettierrc` + Hook設定済み）
+- Linter: ESLint（`eslint.config.js` 設定済み）
 - 命名: ファイル名はkebab-case、クラス・型はPascalCase、関数・変数はcamelCase
 
 ### テスト

@@ -13,6 +13,8 @@
 | ベクタータイル | Protomaps（PMTiles 自己ホスト）     | 登山地形は将来 国土地理院を重畳  |
 | ホスティング   | Cloudflare Pages + R2               | egress無料                       |
 | 設計パターン   | プラグマティック Clean Architecture | 4層・依存は内向き                |
+| ユニットテスト | Vitest                              | domain / application 層          |
+| E2Eテスト      | Playwright                          | 主要フロー検証                   |
 
 ## 選定理由（要約）
 
