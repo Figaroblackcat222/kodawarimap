@@ -19,6 +19,7 @@ disable-model-invocation: true
 ## 手順
 
 ### 1. 変更状況の確認
+
 ```bash
 git status
 git diff --stat
@@ -26,6 +27,7 @@ git log --oneline -5
 ```
 
 ### 2. 変更のグループ化
+
 - `feat:` — 新機能（MVP機能の追加）
 - `fix:` — バグ修正
 - `refactor:` — Clean Architecture層の整理など
@@ -34,6 +36,7 @@ git log --oneline -5
 - `test:` — テストの追加・修正
 
 ### 3. グループごとにコミット
+
 ```bash
 git add <関連ファイル>
 git commit -m "$(cat <<'EOF'
@@ -47,6 +50,7 @@ EOF
 ```
 
 ## 注意事項
+
 - `git add -A` や `git add .` は避け、ファイルを明示的に指定する
 - `.env`・`*.pmtiles`・認証情報を含むファイルはコミットしない
 - `node_modules/` `dist/` は絶対にコミットしない

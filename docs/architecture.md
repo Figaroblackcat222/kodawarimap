@@ -2,17 +2,17 @@
 
 ## 技術スタック
 
-| 領域 | 採用 | 備考 |
-|------|------|------|
-| 言語 | TypeScript | 全レイヤー |
-| フロントエンド | React + Vite（SPA / PWA） | SSR不要のローカルファースト |
-| 地図エンジン | MapLibre GL JS | ベクタータイル＋動的スタイル切替 |
-| ローカルDB | IndexedDB + Dexie.js | 端末内永続化 |
-| オフライン | Service Worker（vite-plugin-pwa） | タイルキャッシュ／エリア保存 |
-| バックエンド | なし（MVPは100%クライアント） | クラウド同期は将来 |
-| ベクタータイル | Protomaps（PMTiles 自己ホスト） | 登山地形は将来 国土地理院を重畳 |
-| ホスティング | Cloudflare Pages + R2 | egress無料 |
-| 設計パターン | プラグマティック Clean Architecture | 4層・依存は内向き |
+| 領域           | 採用                                | 備考                             |
+| -------------- | ----------------------------------- | -------------------------------- |
+| 言語           | TypeScript                          | 全レイヤー                       |
+| フロントエンド | React + Vite（SPA / PWA）           | SSR不要のローカルファースト      |
+| 地図エンジン   | MapLibre GL JS                      | ベクタータイル＋動的スタイル切替 |
+| ローカルDB     | IndexedDB + Dexie.js                | 端末内永続化                     |
+| オフライン     | Service Worker（vite-plugin-pwa）   | タイルキャッシュ／エリア保存     |
+| バックエンド   | なし（MVPは100%クライアント）       | クラウド同期は将来               |
+| ベクタータイル | Protomaps（PMTiles 自己ホスト）     | 登山地形は将来 国土地理院を重畳  |
+| ホスティング   | Cloudflare Pages + R2               | egress無料                       |
+| 設計パターン   | プラグマティック Clean Architecture | 4層・依存は内向き                |
 
 ## 選定理由（要約）
 

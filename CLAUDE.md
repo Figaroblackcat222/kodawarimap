@@ -4,19 +4,19 @@
 
 ## 技術スタック
 
-| 領域 | 採用 |
-|------|------|
-| 言語 | TypeScript |
-| フロントエンド | React + Vite（SPA / PWA） |
-| 地図エンジン | MapLibre GL JS |
-| ローカルDB | IndexedDB + Dexie.js |
-| オフライン | Service Worker（vite-plugin-pwa） |
-| バックエンド | なし（MVPは100%クライアント） |
-| タイル供給 | Protomaps PMTiles 自己ホスト |
-| ホスティング | Cloudflare Pages + R2 |
-| 設計パターン | プラグマティック Clean Architecture（4層） |
-| ユニットテスト | Vitest |
-| E2Eテスト | Playwright |
+| 領域           | 採用                                       |
+| -------------- | ------------------------------------------ |
+| 言語           | TypeScript                                 |
+| フロントエンド | React + Vite（SPA / PWA）                  |
+| 地図エンジン   | MapLibre GL JS                             |
+| ローカルDB     | IndexedDB + Dexie.js                       |
+| オフライン     | Service Worker（vite-plugin-pwa）          |
+| バックエンド   | なし（MVPは100%クライアント）              |
+| タイル供給     | Protomaps PMTiles 自己ホスト               |
+| ホスティング   | Cloudflare Pages + R2                      |
+| 設計パターン   | プラグマティック Clean Architecture（4層） |
+| ユニットテスト | Vitest                                     |
+| E2Eテスト      | Playwright                                 |
 
 ## ディレクトリ構成
 
@@ -38,22 +38,26 @@ docs/
 ## 重要なルール
 
 ### Clean Architecture
+
 - `domain/` と `application/` は React / Dexie / MapLibre を import しない
 - Use Caseは `ports/` のインターフェース経由でのみ外部リソースにアクセスする
 - 新しい外部依存はまず `ports/` にインターフェースを定義してから実装する
 
 ### コーディング規約
+
 - フォーマッター: Prettier（設定後に自動適用）
 - Linter: ESLint（設定後）
 - 命名: ファイル名はkebab-case、クラス・型はPascalCase、関数・変数はcamelCase
 
 ### テスト
+
 - **Vitest**: domain / application のユニットテスト（ブラウザ依存なし・高速）
 - **Playwright**: presentation / 主要フローのE2Eテスト
 - domain / application のテストに MapLibre / Dexie / ブラウザAPIを import しない
 - コミット前にユニットテストとリントを通す
 
 ### PMTilesファイル
+
 - 日本全域PMTiles（数GB）はリポジトリにコミットしない（`.gitignore` 設定済み）
 - 開発時は小さな地域抽出版を使う
 
