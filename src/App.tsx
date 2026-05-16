@@ -1,7 +1,9 @@
+import { MapView } from "@presentation/components/map-view";
+
 function App() {
   return (
-    <div>
-      <h1>kodawarimap</h1>
+    <div style={{ width: "100%", height: "100%" }}>
+      <MapView />
     </div>
   );
 }

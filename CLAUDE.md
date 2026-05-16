@@ -22,14 +22,30 @@
 
 ```
 src/
-├── domain/          # 純粋TS・依存ゼロ（entities / value-objects）
-├── application/     # Use Cases + ports（interface）
-├── infrastructure/  # port の実装（Dexie / ExifParser / MapLibre / SW）
-└── presentation/    # React components / hooks
+├── domain/
+│   ├── entities/        # Pin（+ PinExif）, Category, Photo
+│   └── value-objects/   # ExifData
+├── application/
+│   ├── ports/           # PinRepository, PhotoRepository（restore含む）インターフェース
+│   └── use-cases/       # add-pin, update-pin（title/category/comment/url/videoUrl/exif）,
+                         # soft-delete-pin, restore-pin, hard-delete-pin, add-photo, delete-photo
+├── infrastructure/
+│   ├── persistence/     # db.ts（Dexie v4, schema v8: videoUrl追加）,
+                         # dexie-pin-repository.ts, dexie-photo-repository.ts（restore実装）
+│   ├── exif/            # exif-parser.ts（exifr: GPS・F値・SS・焦点距離・ISO）
+│   ├── image/           # normalize-photo.ts（heic-to: HEIC/HEIF → JPEG変換）
+│   ├── map/             # use-map.ts（MapLibre初期化・click/dblclickハンドリング。マーカー長押し削除はmap-view.tsxのcreateMarker内）
+│   └── cache/           # TileCache（未実装・PMTiles移行後）
+└── presentation/
+    └── components/      # map-view（GPS仮置きモード・マージ確認・地図範囲追跡含む）,
+                         # photo-upload-button, category-selector,
+                         # pin-list-sheet（ソート・表示範囲フィルター含む）,
+                         # pin-detail-sheet（関連動画リンク含む）, cluster-sheet,
+                         # current-location-button, settings-sheet（ソート順・表示範囲設定含む）
 docs/
 ├── service-overview.md
 ├── architecture.md
-├── architecture-decisions/  # ADR-001〜006
+├── architecture-decisions/  # ADR-001〜007
 └── specs/                   # 機能仕様書（Phase B以降）
 ```
 
@@ -72,5 +88,5 @@ docs/
 
 - `docs/service-overview.md` — サービス概要・MVP・ビジョン
 - `docs/architecture.md` — 技術スタック・設計パターン・ディレクトリ構成
-- `docs/architecture-decisions/` — 技術判断の根拠（ADR-001〜006）
+- `docs/architecture-decisions/` — 技術判断の根拠（ADR-001〜007）
 - `docs/specs/` — 機能仕様書（Phase Bで追加予定）

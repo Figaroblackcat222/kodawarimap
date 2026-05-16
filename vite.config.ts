@@ -34,9 +34,21 @@ export default defineConfig({
         // PMTiles へのレンジリクエストはService Workerの通常キャッシュ対象外
         // タイルキャッシュは infrastructure/cache/ で独自実装
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          maplibre: ["maplibre-gl"],
+          heic: ["heic-to"],
+          vendor: ["react", "react-dom", "dexie", "exifr"],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@domain": resolve(__dirname, "src/domain"),
