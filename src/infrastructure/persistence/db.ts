@@ -9,6 +9,7 @@ interface PinRecord {
   comment?: string;
   url?: string;
   videoUrl?: string;
+  allowPhotoDownload?: boolean;
   takenAt?: Date;
   takenAtEstimated?: boolean;
   cameraMake?: string;

@@ -904,6 +904,7 @@ export function MapView() {
           pinRepo={repo}
           photoRepo={dexiePhotoRepository}
           onClose={() => setIsSettingsOpen(false)}
+          onImportComplete={refreshLists}
           trashRetentionDays={trashRetentionDays}
           onTrashRetentionChange={handleTrashRetentionChange}
           sortOrder={sortOrder}

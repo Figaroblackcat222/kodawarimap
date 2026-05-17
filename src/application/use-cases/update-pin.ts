@@ -11,6 +11,7 @@ export async function updatePin(
     url?: string;
     videoUrl?: string;
     exif?: PinExif;
+    allowPhotoDownload?: boolean;
   }
 ): Promise<Pin> {
   const updated: Pin = { ...pin, ...changes };

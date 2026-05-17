@@ -7,6 +7,7 @@ interface Props {
   pinRepo: PinRepository;
   photoRepo: PhotoRepository;
   onClose: () => void;
+  onImportComplete: () => void;
   trashRetentionDays: number;
   onTrashRetentionChange: (days: number) => void;
   sortOrder: "date" | "title";
@@ -21,6 +22,7 @@ export function SettingsSheet({
   pinRepo,
   photoRepo,
   onClose,
+  onImportComplete,
   trashRetentionDays,
   onTrashRetentionChange,
   sortOrder,
@@ -102,6 +104,7 @@ export function SettingsSheet({
       } else {
         await importJson(file);
       }
+      onImportComplete();
     } catch {
       alert("インポートに失敗しました。正しいファイルを選択してください。");
     } finally {

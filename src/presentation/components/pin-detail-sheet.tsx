@@ -1,8 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { X, Plus, Loader2, Map as MapIcon, Pencil, ExternalLink } from "lucide-react";
+import {
+  X,
+  Plus,
+  Loader2,
+  Map as MapIcon,
+  Pencil,
+  ExternalLink,
+  Download,
+  Lock,
+} from "lucide-react";
 import { normalizePhoto } from "@infrastructure/image/normalize-photo";
 import { parseExif } from "@infrastructure/exif/exif-parser";
+import { downloadPhoto } from "@infrastructure/image/write-exif";
 import type { Pin } from "@domain/entities/pin";
 import type { Photo, PhotoExif, PhotoFileInfo } from "@domain/entities/photo";
 import type { PhotoRepository } from "@application/ports/photo-repository";
@@ -38,8 +48,14 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
+  const [addProgress, setAddProgress] = useState<{ current: number; total: number } | null>(null);
+  const [allowPhotoDownload, setAllowPhotoDownload] = useState(pin.allowPhotoDownload ?? false);
+  const [lbScale, setLbScale] = useState(1);
+  const lbScaleRef = useRef(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const swipeDragRef = useRef<{ startX: number } | null>(null);
+  const lbPointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchInitRef = useRef<{ dist: number; startScale: number } | null>(null);
 
   const currentCategory = PRESET_CATEGORIES.find((c) => c.id === categoryId) ?? DEFAULT_CATEGORY;
 
@@ -78,41 +94,48 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
       url: url.trim() || undefined,
       videoUrl: videoUrl.trim() || undefined,
       exif: updatedExif,
+      allowPhotoDownload,
     });
   };
 
   const handleAddPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     setIsAddingPhoto(true);
+    setAddProgress({ current: 0, total: files.length });
     try {
-      const { blob, mimeType } = await normalizePhoto(file);
-      let photoExif: PhotoExif | undefined;
-      try {
-        const exifData = await parseExif(file);
-        const takenAtEstimated = exifData.takenAt == null;
-        photoExif = {
-          takenAt: exifData.takenAt ?? new Date(file.lastModified),
-          takenAtEstimated: takenAtEstimated ? true : undefined,
-          cameraMake: exifData.cameraMake,
-          cameraModel: exifData.cameraModel,
-          fNumber: exifData.fNumber,
-          exposureTime: exifData.exposureTime,
-          focalLength: exifData.focalLength,
-          iso: exifData.iso,
+      for (let i = 0; i < files.length; i++) {
+        setAddProgress({ current: i + 1, total: files.length });
+        const file = files[i];
+        const { blob, mimeType } = await normalizePhoto(file);
+        let photoExif: PhotoExif | undefined;
+        try {
+          const exifData = await parseExif(file);
+          const takenAtEstimated = exifData.takenAt == null;
+          photoExif = {
+            takenAt: exifData.takenAt ?? new Date(file.lastModified),
+            takenAtEstimated: takenAtEstimated ? true : undefined,
+            cameraMake: exifData.cameraMake,
+            cameraModel: exifData.cameraModel,
+            fNumber: exifData.fNumber,
+            exposureTime: exifData.exposureTime,
+            focalLength: exifData.focalLength,
+            iso: exifData.iso,
+          };
+        } catch {
+          // Exif取得失敗は無視
+        }
+        const fileInfo: PhotoFileInfo = {
+          originalFileName: file.name,
+          originalFileSize: file.size,
+          originalLastModified: file.lastModified,
         };
-      } catch {
-        // Exif取得失敗は無視
+        const saved = await photoRepo.save(pin.id, blob, mimeType, photoExif, fileInfo);
+        setPhotos((prev) => [...prev, saved]);
       }
-      const fileInfo: PhotoFileInfo = {
-        originalFileName: file.name,
-        originalFileSize: file.size,
-        originalLastModified: file.lastModified,
-      };
-      const saved = await photoRepo.save(pin.id, blob, mimeType, photoExif, fileInfo);
-      setPhotos((prev) => [...prev, saved]);
     } finally {
       setIsAddingPhoto(false);
+      setAddProgress(null);
       e.target.value = "";
     }
   };
@@ -137,6 +160,13 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [lightboxIndex, visiblePhotos.length]);
+
+  useEffect(() => {
+    lbScaleRef.current = 1;
+    setLbScale(1);
+    lbPointers.current.clear();
+    pinchInitRef.current = null;
+  }, [lightboxIndex]);
 
   return (
     <>
@@ -235,7 +265,9 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
                   {isAddingPhoto ? (
                     <>
                       <Loader2 size={16} className="spin" />
-                      変換中
+                      {addProgress && addProgress.total > 1
+                        ? `${addProgress.current}/${addProgress.total}枚追加中...`
+                        : "追加中..."}
                     </>
                   ) : (
                     <>
@@ -248,6 +280,7 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
                   ref={fileInputRef}
                   type="file"
                   accept="image/*,.heic,.heif"
+                  multiple
                   style={{ display: "none" }}
                   onChange={handleAddPhoto}
                 />
@@ -505,6 +538,50 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
               </div>
             </div>
 
+            {/* ダウンロード許可トグル */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "4px 0",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Lock size={14} color="var(--text-secondary)" />
+                <span style={{ fontSize: 14, color: "var(--text-primary)" }}>
+                  写真のダウンロードを許可
+                </span>
+              </div>
+              <div
+                onClick={() => setAllowPhotoDownload((v) => !v)}
+                style={{
+                  width: 44,
+                  height: 24,
+                  borderRadius: 12,
+                  background: allowPhotoDownload ? "#22c55e" : "var(--border)",
+                  position: "relative",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  transition: "background 0.2s",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    left: allowPhotoDownload ? 22 : 2,
+                    width: 20,
+                    height: 20,
+                    borderRadius: "50%",
+                    background: "#fff",
+                    transition: "left 0.2s",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  }}
+                />
+              </div>
+            </div>
+
             {/* カテゴリー選択 */}
             <div>
               <label
@@ -675,12 +752,45 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
           return createPortal(
             <div
               onPointerDown={(e) => {
-                swipeDragRef.current = { startX: e.clientX };
+                lbPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (lbPointers.current.size === 2) {
+                  const pts = Array.from(lbPointers.current.values());
+                  const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+                  pinchInitRef.current = { dist, startScale: lbScaleRef.current };
+                  swipeDragRef.current = null;
+                } else {
+                  swipeDragRef.current = { startX: e.clientX };
+                }
+              }}
+              onPointerMove={(e) => {
+                lbPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (pinchInitRef.current && lbPointers.current.size >= 2) {
+                  const pts = Array.from(lbPointers.current.values());
+                  const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+                  const newScale = Math.min(
+                    5,
+                    Math.max(
+                      0.5,
+                      (pinchInitRef.current.startScale * dist) / pinchInitRef.current.dist
+                    )
+                  );
+                  lbScaleRef.current = newScale;
+                  setLbScale(newScale);
+                }
               }}
               onPointerUp={(e) => {
+                lbPointers.current.delete(e.pointerId);
+                if (lbPointers.current.size === 1) {
+                  pinchInitRef.current = null;
+                  swipeDragRef.current = { startX: e.clientX };
+                  return;
+                }
+                if (lbPointers.current.size > 0) return;
+                pinchInitRef.current = null;
                 if (!swipeDragRef.current) return;
                 const dx = e.clientX - swipeDragRef.current.startX;
                 swipeDragRef.current = null;
+                if (lbScaleRef.current > 1.05) return;
                 if (dx < -50 && lightboxIndex < visiblePhotos.length - 1) {
                   setLightboxIndex(lightboxIndex + 1);
                 } else if (dx > 50 && lightboxIndex > 0) {
@@ -689,8 +799,10 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
                   setLightboxIndex(null);
                 }
               }}
-              onPointerCancel={() => {
+              onPointerCancel={(e) => {
+                lbPointers.current.delete(e.pointerId);
                 swipeDragRef.current = null;
+                pinchInitRef.current = null;
               }}
               style={{
                 position: "fixed",
@@ -708,7 +820,14 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
                 <img
                   src={lbUrl}
                   alt=""
-                  style={{ maxWidth: "100%", maxHeight: "80%", objectFit: "contain" }}
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: "80%",
+                    objectFit: "contain",
+                    transform: `scale(${lbScale})`,
+                    transformOrigin: "center center",
+                    transition: pinchInitRef.current ? "none" : "transform 0.1s",
+                  }}
                 />
               )}
               <button
@@ -732,6 +851,31 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
               >
                 ✕
               </button>
+              {allowPhotoDownload && (
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => {
+                    downloadPhoto(visiblePhotos[lightboxIndex]).catch(() => {});
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: 16,
+                    right: 60,
+                    background: "rgba(255,255,255,0.2)",
+                    border: "none",
+                    borderRadius: "50%",
+                    width: 36,
+                    height: 36,
+                    color: "#fff",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Download size={18} />
+                </button>
+              )}
               {lightboxIndex > 0 && (
                 <button
                   onPointerDown={(e) => e.stopPropagation()}

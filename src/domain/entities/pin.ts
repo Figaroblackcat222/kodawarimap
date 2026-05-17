@@ -25,6 +25,7 @@ export interface Pin {
   url?: string;
   videoUrl?: string;
   exif?: PinExif;
+  allowPhotoDownload?: boolean;
   createdAt: Date;
   deletedAt?: Date;
 }

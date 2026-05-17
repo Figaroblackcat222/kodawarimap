@@ -19,6 +19,8 @@ function recordToPin(r: PinRecord): Pin {
     categoryId: r.categoryId,
     comment: r.comment,
     url: r.url,
+    videoUrl: r.videoUrl,
+    allowPhotoDownload: r.allowPhotoDownload,
     exif: hasExif
       ? {
           takenAt: r.takenAt,
@@ -46,6 +48,8 @@ export const dexiePinRepository: PinRepository = {
       categoryId: pin.categoryId,
       comment: pin.comment,
       url: pin.url,
+      videoUrl: pin.videoUrl,
+      allowPhotoDownload: pin.allowPhotoDownload,
       takenAt: pin.exif?.takenAt,
       takenAtEstimated: pin.exif?.takenAtEstimated,
       cameraMake: pin.exif?.cameraMake,

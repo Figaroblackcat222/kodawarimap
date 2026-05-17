@@ -33,14 +33,15 @@ src/
 │   ├── persistence/     # db.ts（Dexie v4, schema v8: videoUrl追加）,
                          # dexie-pin-repository.ts, dexie-photo-repository.ts（restore実装）
 │   ├── exif/            # exif-parser.ts（exifr: GPS・F値・SS・焦点距離・ISO）
-│   ├── image/           # normalize-photo.ts（heic-to: HEIC/HEIF → JPEG変換）
+│   ├── image/           # normalize-photo.ts（heic-to: HEIC/HEIF → JPEG変換）,
+                         # write-exif.ts（piexifjs: EXIF書き戻し + ダウンロード実行）
 │   ├── map/             # use-map.ts（MapLibre初期化・click/dblclickハンドリング。マーカー長押し削除はmap-view.tsxのcreateMarker内）
 │   └── cache/           # TileCache（未実装・PMTiles移行後）
 └── presentation/
     └── components/      # map-view（GPS仮置きモード・マージ確認・地図範囲追跡含む）,
                          # photo-upload-button（スマホ・PCともにテキスト常時表示）, category-selector,
                          # pin-list-sheet（3段階スナップ44px/40%/80%・ピルハンドル中央・ソート・表示範囲フィルター含む）,
-                         # pin-detail-sheet（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード・写真別EXIF・関連動画リンク含む）,
+                         # pin-detail-sheet（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・ダウンロード許可トグル・写真一括追加・関連動画リンク含む）,
                          # cluster-sheet, current-location-button, settings-sheet（ソート順・表示範囲設定含む）
 public/                      # PWA静的アセット（アイコン・favicon）
 scripts/
