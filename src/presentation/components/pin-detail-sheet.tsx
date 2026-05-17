@@ -23,15 +23,7 @@ function toDatetimeLocal(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function PinDetailSheet({
-  pin,
-  photoRepo,
-  onSave,
-  onClose,
-  onFlyTo,
-  onSplitPhoto,
-  sheetHeight,
-}: Props) {
+export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSplitPhoto }: Props) {
   const [title, setTitle] = useState(pin.title);
   const [categoryId, setCategoryId] = useState(pin.categoryId ?? DEFAULT_CATEGORY.id);
   const [comment, setComment] = useState(pin.comment ?? "");
@@ -43,10 +35,11 @@ export function PinDetailSheet({
   const [isEditingTakenAt, setIsEditingTakenAt] = useState(false);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(new Map());
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const swipeDragRef = useRef<{ startX: number } | null>(null);
 
   const currentCategory = PRESET_CATEGORIES.find((c) => c.id === categoryId) ?? DEFAULT_CATEGORY;
 
@@ -74,7 +67,9 @@ export function PinDetailSheet({
           takenAt: takenAt ? new Date(takenAt) : undefined,
           takenAtEstimated: undefined,
         }
-      : undefined;
+      : takenAt
+        ? { takenAt: new Date(takenAt), takenAtEstimated: undefined }
+        : undefined;
     onSave({
       ...pin,
       title: title.trim() || pin.title,
@@ -128,6 +123,21 @@ export function PinDetailSheet({
 
   const visiblePhotos = photos.filter((p) => !pendingDeleteIds.includes(p.id));
 
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight" && lightboxIndex < visiblePhotos.length - 1) {
+        setLightboxIndex(lightboxIndex + 1);
+      } else if (e.key === "ArrowLeft" && lightboxIndex > 0) {
+        setLightboxIndex(lightboxIndex - 1);
+      } else if (e.key === "Escape") {
+        setLightboxIndex(null);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [lightboxIndex, visiblePhotos.length]);
+
   return (
     <>
       <div
@@ -138,7 +148,7 @@ export function PinDetailSheet({
           display: "flex",
           flexDirection: "column",
           justifyContent: "flex-end",
-          background: "rgba(0,0,0,0.4)",
+          background: "rgba(0,0,0,0.15)",
         }}
         onClick={(e) => {
           if (e.target === e.currentTarget) onClose();
@@ -150,7 +160,7 @@ export function PinDetailSheet({
             borderRadius: "16px 16px 0 0",
             display: "flex",
             flexDirection: "column",
-            height: Math.max(sheetHeight, Math.round(window.innerHeight * 0.5)),
+            height: Math.round(window.innerHeight * 0.75),
           }}
         >
           {/* ヘッダー（固定） */}
@@ -164,7 +174,7 @@ export function PinDetailSheet({
               flexShrink: 0,
             }}
           >
-            <span style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>
+            <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)" }}>
               {pin.title}の詳細
             </span>
             <button
@@ -188,7 +198,7 @@ export function PinDetailSheet({
             style={{
               flex: 1,
               overflowY: "auto",
-              padding: "16px 16px 32px",
+              padding: "16px 16px 16px",
               display: "flex",
               flexDirection: "column",
               gap: 16,
@@ -204,7 +214,7 @@ export function PinDetailSheet({
                   marginBottom: 8,
                 }}
               >
-                <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>写真</label>
+                <label style={{ fontSize: 14, color: "var(--text-secondary)" }}>写真</label>
 
                 <button
                   onClick={() => !isAddingPhoto && fileInputRef.current?.click()}
@@ -212,25 +222,25 @@ export function PinDetailSheet({
                   style={{
                     background: isAddingPhoto ? "var(--bg-tertiary)" : "var(--pill-bg)",
                     border: "none",
-                    borderRadius: 6,
-                    padding: "4px 10px",
-                    fontSize: 12,
+                    borderRadius: 8,
+                    padding: "8px 16px",
+                    fontSize: 14,
                     cursor: isAddingPhoto ? "default" : "pointer",
                     color: "var(--pill-text)",
                     display: "flex",
                     alignItems: "center",
-                    gap: 4,
+                    gap: 6,
                   }}
                 >
                   {isAddingPhoto ? (
                     <>
-                      <Loader2 size={14} className="spin" />
+                      <Loader2 size={16} className="spin" />
                       変換中
                     </>
                   ) : (
                     <>
-                      <Plus size={14} />
-                      追加
+                      <Plus size={16} />
+                      写真を追加
                     </>
                   )}
                 </button>
@@ -259,7 +269,7 @@ export function PinDetailSheet({
                         <img
                           src={url}
                           alt=""
-                          onClick={() => setLightboxUrl(url)}
+                          onClick={() => setLightboxIndex(visiblePhotos.indexOf(photo))}
                           style={{
                             width: 100,
                             height: 100,
@@ -331,7 +341,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 12,
+                  fontSize: 14,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 4,
@@ -347,7 +357,7 @@ export function PinDetailSheet({
                   padding: "10px 12px",
                   borderRadius: 8,
                   border: "1.5px solid var(--border)",
-                  fontSize: 15,
+                  fontSize: 17,
                   outline: "none",
                   boxSizing: "border-box",
                   background: "var(--input-bg)",
@@ -360,7 +370,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 12,
+                  fontSize: 14,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 4,
@@ -393,7 +403,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 12,
+                  fontSize: 14,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 4,
@@ -446,7 +456,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 12,
+                  fontSize: 14,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 4,
@@ -499,7 +509,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 12,
+                  fontSize: 14,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 8,
@@ -530,110 +540,98 @@ export function PinDetailSheet({
               </div>
             </div>
 
-            {/* 撮影情報 */}
-            {pin.exif && (
-              <div>
-                <label
+            {/* 記録情報 */}
+            <div>
+              <label
+                style={{
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                記録情報
+              </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div
                   style={{
-                    fontSize: 12,
-                    color: "var(--text-secondary)",
-                    display: "block",
-                    marginBottom: 6,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
                   }}
                 >
-                  撮影情報
-                </label>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>撮影日時</span>
-                      {!isEditingTakenAt && (
-                        <button
-                          onClick={() => setIsEditingTakenAt(true)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            padding: 2,
-                            cursor: "pointer",
-                            color: "var(--text-muted)",
-                            display: "flex",
-                            alignItems: "center",
-                          }}
-                          title="撮影日時を編集"
-                        >
-                          <Pencil size={11} />
-                        </button>
-                      )}
-                    </div>
-                    {isEditingTakenAt ? (
-                      <input
-                        type="datetime-local"
-                        value={takenAt}
-                        onChange={(e) => setTakenAt(e.target.value)}
-                        autoFocus
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>撮影日時</span>
+                    {!isEditingTakenAt && (
+                      <button
+                        onClick={() => setIsEditingTakenAt(true)}
                         style={{
-                          padding: "4px 8px",
-                          borderRadius: 6,
-                          border: "1.5px solid var(--border)",
-                          fontSize: 12,
-                          outline: "none",
-                          background: "var(--input-bg)",
-                          color: "var(--text-primary)",
+                          background: "none",
+                          border: "none",
+                          padding: 2,
+                          cursor: "pointer",
+                          color: "var(--text-muted)",
+                          display: "flex",
+                          alignItems: "center",
                         }}
-                      />
-                    ) : (
-                      <span style={{ fontSize: 13, color: "var(--text-primary)" }}>
-                        {takenAt ? new Date(takenAt).toLocaleString("ja-JP") : "—"}
-                        {pin.exif.takenAtEstimated && (
-                          <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>
-                            （推定）
-                          </span>
-                        )}
-                      </span>
+                        title="撮影日時を編集"
+                      >
+                        <Pencil size={11} />
+                      </button>
                     )}
                   </div>
-                  {(pin.exif.cameraMake || pin.exif.cameraModel) && (
-                    <InfoRow
-                      label="カメラ"
-                      value={[pin.exif.cameraMake, pin.exif.cameraModel].filter(Boolean).join(" ")}
+                  {isEditingTakenAt ? (
+                    <input
+                      type="datetime-local"
+                      value={takenAt}
+                      onChange={(e) => setTakenAt(e.target.value)}
+                      autoFocus
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1.5px solid var(--border)",
+                        fontSize: 12,
+                        outline: "none",
+                        background: "var(--input-bg)",
+                        color: "var(--text-primary)",
+                      }}
                     />
+                  ) : (
+                    <span style={{ fontSize: 13, color: "var(--text-primary)" }}>
+                      {takenAt ? new Date(takenAt).toLocaleString("ja-JP") : "未設定"}
+                      {pin.exif?.takenAtEstimated && (
+                        <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>
+                          （推定）
+                        </span>
+                      )}
+                    </span>
                   )}
-                  {pin.exif.fNumber != null && (
-                    <InfoRow label="F値" value={`f/${pin.exif.fNumber}`} />
-                  )}
-                  {pin.exif.exposureTime != null && (
-                    <InfoRow label="シャッター" value={formatShutter(pin.exif.exposureTime)} />
-                  )}
-                  {pin.exif.focalLength != null && (
-                    <InfoRow label="焦点距離" value={`${pin.exif.focalLength}mm`} />
-                  )}
-                  {pin.exif.iso != null && <InfoRow label="ISO" value={`ISO ${pin.exif.iso}`} />}
                 </div>
+                <InfoRow label="作成日時" value={pin.createdAt.toLocaleString("ja-JP")} />
+                <InfoRow
+                  label="座標"
+                  value={`${pin.coordinates.lat.toFixed(5)}, ${pin.coordinates.lng.toFixed(5)}`}
+                />
               </div>
-            )}
-
-            {/* メタ情報 */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <InfoRow label="作成日時" value={pin.createdAt.toLocaleString("ja-JP")} />
-              <InfoRow
-                label="座標"
-                value={`${pin.coordinates.lat.toFixed(5)}, ${pin.coordinates.lng.toFixed(5)}`}
-              />
             </div>
-
-            {/* アクションボタン */}
+          </div>
+          {/* フッター固定ボタン */}
+          <div
+            style={{
+              flexShrink: 0,
+              borderTop: "1px solid var(--border)",
+              padding: "12px 16px",
+              display: "flex",
+              gap: 8,
+            }}
+          >
             <button
               onClick={() => {
                 onFlyTo(pin);
                 onClose();
               }}
               style={{
+                flex: 1,
                 background: "var(--bg-tertiary)",
                 border: "none",
                 borderRadius: 10,
@@ -641,14 +639,19 @@ export function PinDetailSheet({
                 fontSize: 14,
                 cursor: "pointer",
                 color: "var(--text-primary)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
               }}
             >
-              <MapIcon size={15} style={{ marginRight: 6, verticalAlign: "middle" }} />
+              <MapIcon size={15} />
               地図で見る
             </button>
             <button
               onClick={handleSave}
               style={{
+                flex: 2,
                 background: currentCategory.markerColor,
                 border: "none",
                 borderRadius: 10,
@@ -664,50 +667,168 @@ export function PinDetailSheet({
           </div>
         </div>
       </div>
-      {lightboxUrl &&
-        createPortal(
-          <div
-            onClick={() => setLightboxUrl(null)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 9999,
-              background: "rgba(0,0,0,0.92)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <img
-              src={lightboxUrl}
-              alt=""
-              onClick={(e) => e.stopPropagation()}
-              style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-            />
-            <button
-              onClick={() => setLightboxUrl(null)}
+      {lightboxIndex !== null &&
+        (() => {
+          const lbPhoto = visiblePhotos[lightboxIndex];
+          const lbUrl = lbPhoto ? photoUrls.get(lbPhoto.id) : undefined;
+          const lbExif = lbPhoto?.exif;
+          return createPortal(
+            <div
+              onPointerDown={(e) => {
+                swipeDragRef.current = { startX: e.clientX };
+              }}
+              onPointerUp={(e) => {
+                if (!swipeDragRef.current) return;
+                const dx = e.clientX - swipeDragRef.current.startX;
+                swipeDragRef.current = null;
+                if (dx < -50 && lightboxIndex < visiblePhotos.length - 1) {
+                  setLightboxIndex(lightboxIndex + 1);
+                } else if (dx > 50 && lightboxIndex > 0) {
+                  setLightboxIndex(lightboxIndex - 1);
+                } else if (Math.abs(dx) < 10) {
+                  setLightboxIndex(null);
+                }
+              }}
+              onPointerCancel={() => {
+                swipeDragRef.current = null;
+              }}
               style={{
-                position: "absolute",
-                top: 16,
-                right: 16,
-                background: "rgba(255,255,255,0.2)",
-                border: "none",
-                borderRadius: "50%",
-                width: 36,
-                height: 36,
-                color: "#fff",
-                fontSize: 16,
-                cursor: "pointer",
+                position: "fixed",
+                inset: 0,
+                zIndex: 9999,
+                background: "rgba(0,0,0,0.92)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                touchAction: "none",
+                userSelect: "none",
               }}
             >
-              ✕
-            </button>
-          </div>,
-          document.body
-        )}
+              {lbUrl && (
+                <img
+                  src={lbUrl}
+                  alt=""
+                  style={{ maxWidth: "100%", maxHeight: "80%", objectFit: "contain" }}
+                />
+              )}
+              <button
+                onClick={() => setLightboxIndex(null)}
+                style={{
+                  position: "absolute",
+                  top: 16,
+                  right: 16,
+                  background: "rgba(255,255,255,0.2)",
+                  border: "none",
+                  borderRadius: "50%",
+                  width: 36,
+                  height: 36,
+                  color: "#fff",
+                  fontSize: 16,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                ✕
+              </button>
+              {lightboxIndex > 0 && (
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => setLightboxIndex(lightboxIndex - 1)}
+                  style={{
+                    position: "absolute",
+                    left: 16,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "rgba(255,255,255,0.2)",
+                    border: "none",
+                    borderRadius: "50%",
+                    width: 44,
+                    height: 44,
+                    color: "#fff",
+                    fontSize: 24,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  ‹
+                </button>
+              )}
+              {lightboxIndex < visiblePhotos.length - 1 && (
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => setLightboxIndex(lightboxIndex + 1)}
+                  style={{
+                    position: "absolute",
+                    right: 16,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "rgba(255,255,255,0.2)",
+                    border: "none",
+                    borderRadius: "50%",
+                    width: 44,
+                    height: 44,
+                    color: "#fff",
+                    fontSize: 24,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  ›
+                </button>
+              )}
+              {visiblePhotos.length > 1 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: lbExif ? 80 : 24,
+                    left: 0,
+                    right: 0,
+                    textAlign: "center",
+                    color: "rgba(255,255,255,0.8)",
+                    fontSize: 13,
+                    pointerEvents: "none",
+                  }}
+                >
+                  {lightboxIndex + 1} / {visiblePhotos.length}
+                </div>
+              )}
+              {lbExif && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: 16,
+                    left: 16,
+                    right: 16,
+                    color: "rgba(255,255,255,0.75)",
+                    fontSize: 11,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                    pointerEvents: "none",
+                  }}
+                >
+                  {(lbExif.cameraMake || lbExif.cameraModel) && (
+                    <span>{[lbExif.cameraMake, lbExif.cameraModel].filter(Boolean).join(" ")}</span>
+                  )}
+                  {lbExif.fNumber != null && <span>f/{lbExif.fNumber}</span>}
+                  {lbExif.exposureTime != null && <span>{formatShutter(lbExif.exposureTime)}</span>}
+                  {lbExif.focalLength != null && <span>{lbExif.focalLength}mm</span>}
+                  {lbExif.iso != null && <span>ISO {lbExif.iso}</span>}
+                  {lbExif.takenAt && (
+                    <span>{new Date(lbExif.takenAt).toLocaleString("ja-JP")}</span>
+                  )}
+                </div>
+              )}
+            </div>,
+            document.body
+          );
+        })()}
     </>
   );
 }

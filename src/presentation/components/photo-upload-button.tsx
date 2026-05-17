@@ -1,6 +1,5 @@
 import { useRef } from "react";
 import { Camera, Loader2 } from "lucide-react";
-import { useMediaQuery } from "@presentation/hooks/use-media-query";
 
 interface Props {
   onFile: (file: File) => void;
@@ -9,7 +8,6 @@ interface Props {
 
 export function PhotoUploadButton({ onFile, loading = false }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const isDesktop = useMediaQuery("(min-width: 768px)");
 
   return (
     <>
@@ -49,12 +47,12 @@ export function PhotoUploadButton({ onFile, loading = false }: Props) {
         {loading ? (
           <>
             <Loader2 size={16} className="spin" />
-            {isDesktop && "変換中..."}
+            変換中...
           </>
         ) : (
           <>
             <Camera size={16} />
-            {isDesktop && "写真を追加"}
+            写真から記録
           </>
         )}
       </button>

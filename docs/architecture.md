@@ -66,10 +66,10 @@ src/
 └── presentation/                  # React コンポーネント / hooks
     ├── components/
     │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除）
-    │   ├── photo-upload-button.tsx # 写真追加ボタン
+    │   ├── photo-upload-button.tsx # 写真追加ボタン（スマホ・PCともに「写真から記録」テキスト常時表示）
     │   ├── category-selector.tsx   # カテゴリー選択ピル（地図スタイル切替・固定白背景）
-    │   ├── pin-list-sheet.tsx      # ボトムシート（一覧・フィルター・ソート・表示範囲・ゴミ箱・ダークモード対応）
-    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さリスト連動）
+    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・ゴミ箱・ダークモード対応）
+    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード・写真別EXIF・記録情報常時表示）
     │   ├── cluster-sheet.tsx       # 同座標ピン一覧シート（クラスターマーカークリック時）
     │   ├── current-location-button.tsx # 現在地flyToボタン
     │   └── settings-sheet.tsx      # 設定画面（エクスポート・インポート・ゴミ箱保持期間・ソート順・表示範囲）
@@ -208,6 +208,11 @@ interface Photo {
 
 詳細シートでサムネをタップ
   └─ lightbox（createPortal → document.body）でフルサイズ表示
+       ├─ スマホ: PointerEvents でスワイプ（左右）して前後写真に切り替え
+       ├─ PC: 画面左右の ‹ › ボタンでクリック切り替え
+       ├─ PC/スマホ共通: キーボード ←→ で切り替え・Escape で閉じる
+       ├─ 背景タップで閉じる（スワイプ距離10px未満を「タップ」判定）
+       └─ 写真ごとの EXIF（カメラ機種・F値・SS・焦点距離・ISO・撮影日時）と位置インジケーター（n/m）を表示
 
 詳細シートで写真を「分割」
   └─ photoRepo.delete(photo.id) → addPin()（同座標・タイトル継承）
@@ -231,6 +236,37 @@ interface Photo {
   └─ purgeExpired()（30日超過分を物理削除）→ findAll() → syncMarkers（全マーカー描画）
        syncMarkers: 同座標グループ → 単一ピンは通常マーカー / 複数ピンはクラスターマーカー
 ```
+
+## ビルド・デプロイ設定
+
+### コード分割（`vite.config.ts`）
+
+`heic-to`（WebAssembly バンドル）が 2.7 MB あり Workbox のデフォルト上限（2 MiB）を超えるため、`manualChunks` で分割している。
+
+| チャンク名 | 含むパッケージ                 | サイズ（gzip） |
+| ---------- | ------------------------------ | -------------- |
+| `maplibre` | maplibre-gl                    | ~285 KB        |
+| `heic`     | heic-to                        | ~671 KB        |
+| `vendor`   | react, react-dom, dexie, exifr | ~63 KB         |
+| `index`    | アプリコード                   | ~76 KB         |
+
+`heic-to` はさらなる分割が困難なため `workbox.maximumFileSizeToCacheInBytes: 5 MiB` で上限緩和。
+
+### SPA ルーティング
+
+Cloudflare Pages の Pretty URLs 機能（`.html` 拡張子を自動除去）により `_redirects` の `/* /index.html 200` が無限ループを引き起こす（code: 10021）。ビルドスクリプトで `dist/index.html → dist/404.html` にコピーし、ファイル未検出時に `404.html` を返す Cloudflare Pages の挙動を利用する。
+
+```json
+"build": "tsc -b && vite build && cp dist/index.html dist/404.html"
+```
+
+### Cloudflare Pages 設定
+
+| 項目                   | 値                  |
+| ---------------------- | ------------------- |
+| Build command          | `npm run build`     |
+| Build output directory | `dist`              |
+| 環境変数               | `NODE_VERSION = 20` |
 
 ## 将来構成（記録のみ・MVP対象外）
 

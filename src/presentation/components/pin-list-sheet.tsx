@@ -8,6 +8,14 @@ import { useMediaQuery } from "@presentation/hooks/use-media-query";
 const MIN_HEIGHT = 44;
 const MAX_HEIGHT_RATIO = 0.8;
 
+function snapHeights() {
+  return [
+    MIN_HEIGHT,
+    Math.round(window.innerHeight * 0.4),
+    Math.round(window.innerHeight * MAX_HEIGHT_RATIO),
+  ];
+}
+
 type MapBounds = { west: number; east: number; south: number; north: number };
 
 interface Props {
@@ -114,17 +122,14 @@ export function PinListSheet({
   const [takenTo, setTakenTo] = useState("");
 
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const prevHeightRef = useRef<number>(
-    sheetHeight > MIN_HEIGHT ? sheetHeight : Math.round(window.innerHeight * 0.4)
-  );
 
   const handleCollapseToggle = useCallback(() => {
-    if (sheetHeight > MIN_HEIGHT) {
-      prevHeightRef.current = sheetHeight;
-      onSheetHeightChange(MIN_HEIGHT);
-    } else {
-      onSheetHeightChange(prevHeightRef.current);
-    }
+    const snaps = snapHeights();
+    const idx = snaps.reduce(
+      (best, s, i) => (Math.abs(s - sheetHeight) < Math.abs(snaps[best] - sheetHeight) ? i : best),
+      0
+    );
+    onSheetHeightChange(snaps[(idx + 1) % snaps.length]);
   }, [sheetHeight, onSheetHeightChange]);
 
   const handlePointerDown = useCallback(
@@ -146,10 +151,18 @@ export function PinListSheet({
     [onSheetHeightChange]
   );
 
-  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.releasePointerCapture(e.pointerId);
-    dragRef.current = null;
-  }, []);
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      dragRef.current = null;
+      const snaps = snapHeights();
+      const nearest = snaps.reduce((best, s) =>
+        Math.abs(s - sheetHeight) < Math.abs(best - sheetHeight) ? s : best
+      );
+      onSheetHeightChange(nearest);
+    },
+    [sheetHeight, onSheetHeightChange]
+  );
 
   const activePins = useMemo(() => {
     let result = pins;
@@ -224,45 +237,50 @@ export function PinListSheet({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         style={{
-          position: "relative",
           flexShrink: 0,
-          height: 44,
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
-          fontSize: 13,
-          color: "var(--text-secondary)",
-          padding: "0 16px",
+          flexDirection: "column",
           cursor: "ns-resize",
           touchAction: "none",
           userSelect: "none",
         }}
       >
-        <span
-          style={{ width: 36, height: 4, borderRadius: 2, background: "#ccc", display: "block" }}
-        />
-        <span style={{ marginLeft: 8 }}>
-          {showTrash ? `ゴミ箱 ${deletedPins.length}件` : `ピン ${pins.length}件`}
-        </span>
-        <button
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={handleCollapseToggle}
+        <div style={{ display: "flex", justifyContent: "center", paddingTop: 8 }}>
+          <span
+            style={{ width: 40, height: 5, borderRadius: 3, background: "#999", display: "block" }}
+          />
+        </div>
+        <div
           style={{
-            position: "absolute",
-            right: 8,
-            background: "none",
-            border: "none",
-            padding: 4,
-            cursor: "pointer",
-            color: "var(--text-secondary)",
+            position: "relative",
             display: "flex",
             alignItems: "center",
+            justifyContent: "center",
+            padding: "4px 16px 8px",
+            fontSize: 13,
+            color: "var(--text-secondary)",
           }}
-          title={isExpanded ? "折りたたむ" : "展開する"}
         >
-          {isExpanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-        </button>
+          <span>{showTrash ? `ゴミ箱 ${deletedPins.length}件` : `ピン ${pins.length}件`}</span>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={handleCollapseToggle}
+            style={{
+              position: "absolute",
+              right: 8,
+              background: "none",
+              border: "none",
+              padding: 4,
+              cursor: "pointer",
+              color: "var(--text-secondary)",
+              display: "flex",
+              alignItems: "center",
+            }}
+            title="表示切替"
+          >
+            {isExpanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+          </button>
+        </div>
       </div>
 
       {isExpanded && (
