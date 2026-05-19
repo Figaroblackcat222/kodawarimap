@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { SlidersHorizontal, Trash2, X, ChevronDown, ChevronUp, List } from "lucide-react";
-import type { Pin } from "@domain/entities/pin";
+import type { Pin, PinReaction } from "@domain/entities/pin";
 import type { PhotoRepository } from "@application/ports/photo-repository";
 import { PRESET_CATEGORIES } from "@domain/entities/category";
 import { useMediaQuery } from "@presentation/hooks/use-media-query";
@@ -117,6 +117,7 @@ export function PinListSheet({
   const [keyword, setKeyword] = useState("");
   const [showTrash, setShowTrash] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [reactionFilter, setReactionFilter] = useState<PinReaction | "none" | "all">("all");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [takenFrom, setTakenFrom] = useState("");
   const [takenTo, setTakenTo] = useState("");
@@ -187,6 +188,13 @@ export function PinListSheet({
     if (categoryFilter !== "all") {
       result = result.filter((p) => (p.categoryId ?? "general") === categoryFilter);
     }
+    if (reactionFilter !== "all") {
+      if (reactionFilter === "none") {
+        result = result.filter((p) => !p.reaction);
+      } else {
+        result = result.filter((p) => p.reaction === reactionFilter);
+      }
+    }
     if (takenFrom || takenTo) {
       const from = takenFrom ? new Date(takenFrom) : null;
       const to = takenTo ? new Date(takenTo + "T23:59:59") : null;
@@ -208,7 +216,17 @@ export function PinListSheet({
       });
     }
     return result;
-  }, [pins, keyword, categoryFilter, takenFrom, takenTo, sortOrder, listScope, mapBounds]);
+  }, [
+    pins,
+    keyword,
+    categoryFilter,
+    reactionFilter,
+    takenFrom,
+    takenTo,
+    sortOrder,
+    listScope,
+    mapBounds,
+  ]);
 
   const currentList = showTrash ? deletedPins : activePins;
   const isExpanded = sheetHeight > MIN_HEIGHT;
@@ -448,6 +466,48 @@ export function PinListSheet({
                 ))}
               </div>
 
+              {/* リアクションフィルター */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  marginBottom: 8,
+                  overflowX: "auto",
+                  paddingBottom: 2,
+                }}
+              >
+                <FilterPill
+                  label="すべて"
+                  active={reactionFilter === "all"}
+                  color="#6b7280"
+                  onClick={() => setReactionFilter("all")}
+                />
+                <FilterPill
+                  label="😊 また行きたい"
+                  active={reactionFilter === "want_to_revisit"}
+                  color="#22c55e"
+                  onClick={() => setReactionFilter("want_to_revisit")}
+                />
+                <FilterPill
+                  label="😐 一回でいいかな"
+                  active={reactionFilter === "once_was_enough"}
+                  color="#f59e0b"
+                  onClick={() => setReactionFilter("once_was_enough")}
+                />
+                <FilterPill
+                  label="😩 二度と行かない"
+                  active={reactionFilter === "never_again"}
+                  color="#ef4444"
+                  onClick={() => setReactionFilter("never_again")}
+                />
+                <FilterPill
+                  label="未設定"
+                  active={reactionFilter === "none"}
+                  color="#9ca3af"
+                  onClick={() => setReactionFilter("none")}
+                />
+              </div>
+
               {/* 撮影日プリセット */}
               <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                 {(["all", "today", "week", "month", "year"] as const).map((preset) => {
@@ -538,11 +598,12 @@ export function PinListSheet({
               </div>
 
               {/* フィルターリセット */}
-              {(categoryFilter !== "all" || takenFrom || takenTo) && (
+              {(categoryFilter !== "all" || reactionFilter !== "all" || takenFrom || takenTo) && (
                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
                   <button
                     onClick={() => {
                       setCategoryFilter("all");
+                      setReactionFilter("all");
                       setTakenFrom("");
                       setTakenTo("");
                     }}
@@ -673,10 +734,12 @@ export function PinListSheet({
                         </span>
                       </div>
                       <span style={{ fontSize: 12, color: "var(--text-muted)", paddingLeft: 14 }}>
-                        {(pin.exif?.takenAt ?? pin.createdAt).toLocaleDateString("ja-JP", {
+                        {(pin.exif?.takenAt ?? pin.createdAt).toLocaleString("ja-JP", {
                           year: "numeric",
                           month: "long",
                           day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
                         })}
                         {pin.exif?.takenAt && pin.exif.takenAtEstimated && "（推定）"}
                         {showTrash && pin.deletedAt && (

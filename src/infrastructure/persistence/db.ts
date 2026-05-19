@@ -19,6 +19,7 @@ interface PinRecord {
   focalLength?: number;
   iso?: number;
   createdAt: Date;
+  reaction?: string;
   deletedAt?: Date;
 }
 
@@ -61,6 +62,10 @@ class KodawarimapDB extends Dexie {
       photos: "id, pinId, createdAt",
     });
     this.version(8).stores({
+      pins: "id, createdAt, deletedAt, categoryId",
+      photos: "id, pinId, createdAt",
+    });
+    this.version(9).stores({
       pins: "id, createdAt, deletedAt, categoryId",
       photos: "id, pinId, createdAt",
     });

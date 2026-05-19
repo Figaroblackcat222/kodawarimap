@@ -7,7 +7,7 @@
 | 言語           | TypeScript                          | 全レイヤー                                     |
 | フロントエンド | React + Vite（SPA / PWA）           | SSR不要のローカルファースト                    |
 | 地図エンジン   | MapLibre GL JS v5                   | ベクタータイル＋動的スタイル切替               |
-| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv8）                     |
+| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv9）                     |
 | オフライン     | Service Worker（vite-plugin-pwa）   | タイルキャッシュ／エリア保存                   |
 | バックエンド   | なし（MVPは100%クライアント）       | クラウド同期は将来                             |
 | ベクタータイル | 開発: CARTO Free Basemaps           | 本番: Protomaps PMTiles 自己ホスト（移行予定） |
@@ -45,7 +45,7 @@ src/
 │   │   └── photo-repository.ts    # PhotoRepository インターフェース
 │   └── use-cases/
 │       ├── add-pin.ts             # ピン追加（Exif含む）
-│       ├── update-pin.ts          # タイトル・カテゴリー・コメント・URL・videoUrl・Exif更新
+│       ├── update-pin.ts          # タイトル・カテゴリー・コメント・URL・videoUrl・Exif・reaction更新
 │       ├── soft-delete-pin.ts     # 論理削除（ゴミ箱へ）
 │       ├── restore-pin.ts         # ゴミ箱から復元
 │       ├── hard-delete-pin.ts     # 物理削除（ゴミ箱内のピンを完全削除）
@@ -53,7 +53,7 @@ src/
 │       └── delete-photo.ts        # 写真を削除
 ├── infrastructure/                # port の実装（adapter）
 │   ├── persistence/
-│   │   ├── db.ts                  # KodawarimapDB（Dexie, v8スキーマ: pins + photos）
+│   │   ├── db.ts                  # KodawarimapDB（Dexie, v9スキーマ: pins + photos）
 │   │   ├── dexie-pin-repository.ts # PinRepository 実装
 │   │   └── dexie-photo-repository.ts # PhotoRepository 実装
 │   ├── exif/
@@ -66,11 +66,11 @@ src/
 │   └── cache/                     # TileCacheAdapter（未実装・PMTiles移行後）
 └── presentation/                  # React コンポーネント / hooks
     ├── components/
-    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除）
+    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・reactionバッジ・リッチツールチップ遅延サムネイル）
     │   ├── photo-upload-button.tsx # 写真追加ボタン（スマホ・PCともに「写真から記録」テキスト常時表示）
     │   ├── category-selector.tsx   # カテゴリー選択ピル（地図スタイル切替・固定白背景）
-    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・ゴミ箱・ダークモード対応）
-    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・記録情報常時表示・ダウンロード許可トグル・写真一括追加）
+    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・reactionフィルター・ゴミ箱・ダークモード対応）
+    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・補足情報accordion・ダウンロード許可トグル・写真一括追加・カテゴリー→評価→補足情報の順）
     │   ├── cluster-sheet.tsx       # 同座標ピン一覧シート（クラスターマーカークリック時）
     │   ├── current-location-button.tsx # 現在地flyToボタン
     │   └── settings-sheet.tsx      # 設定画面（エクスポート・インポート・ゴミ箱保持期間・ソート順・表示範囲）
@@ -102,6 +102,7 @@ interface Pin {
     focalLength?: number; // 焦点距離 mm
     iso?: number; // ISO感度
   };
+  reaction?: "want_to_revisit" | "once_was_enough" | "never_again"; // 自己評価リアクション（任意）
   createdAt: Date;
   deletedAt?: Date; // ゴミ箱: 設定日時。undefined = アクティブ
 }
@@ -134,11 +135,11 @@ interface Photo {
 }
 ```
 
-### IndexedDB スキーマ（v8）
+### IndexedDB スキーマ（v9）
 
 **pins テーブル**  
 インデックス: `id, createdAt, deletedAt, categoryId`  
-フィールド: Exif全フィールド（フラット保存）＋ `comment` ＋ `url` ＋ `videoUrl` ＋ `takenAtEstimated`
+フィールド: Exif全フィールド（フラット保存）＋ `comment` ＋ `url` ＋ `videoUrl` ＋ `takenAtEstimated` ＋ `reaction`（任意）
 
 **photos テーブル**  
 インデックス: `id, pinId, createdAt`  
@@ -183,8 +184,9 @@ interface Photo {
 地図ダブルクリック
   └─ addPin() → IndexedDB保存 → setPins → syncMarkers
 
-マーカーホバー
-  └─ Popup でピンタイトルを表示
+マーカーホバー（PC）
+  └─ リッチ Popup を表示（タイトル + reaction ラベル + 遅延読み込みサムネイル）
+       初回 mouseenter 時に getFirstPhotoUrl() で IndexedDB から先頭写真を取得しキャッシュ
 
 マーカークリック（単一ピン）
   └─ setSelectedPin(pin) → 詳細シートを表示。flyTo（padding + offset でカテゴリセレクター付近に配置）

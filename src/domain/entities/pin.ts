@@ -16,6 +16,8 @@ export interface PinExif {
   iso?: number;
 }
 
+export type PinReaction = "want_to_revisit" | "once_was_enough" | "never_again";
+
 export interface Pin {
   id: PinId;
   coordinates: Coordinates;
@@ -26,6 +28,7 @@ export interface Pin {
   videoUrl?: string;
   exif?: PinExif;
   allowPhotoDownload?: boolean;
+  reaction?: PinReaction;
   createdAt: Date;
   deletedAt?: Date;
 }

@@ -75,6 +75,53 @@ function distanceMeters(a: { lng: number; lat: number }, b: { lng: number; lat: 
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+const REACTION_EMOJI_MAP: Record<string, string> = {
+  want_to_revisit: "😊",
+  once_was_enough: "😐",
+  never_again: "😩",
+};
+
+const REACTION_LABEL_MAP: Record<string, string> = {
+  want_to_revisit: "😊 また行きたい",
+  once_was_enough: "😐 一回でいいかな",
+  never_again: "😩 二度と行かない",
+};
+
+async function getFirstPhotoUrl(pinId: string): Promise<string | null> {
+  const photos = await dexiePhotoRepository.findByPinId(pinId);
+  return photos.length > 0 ? URL.createObjectURL(photos[0].blob) : null;
+}
+
+function buildPopupContent(pin: Pin, thumbUrl: string | null): HTMLElement {
+  const container = document.createElement("div");
+  container.style.cssText = "display:flex;align-items:center;gap:8px;min-width:120px";
+
+  if (thumbUrl) {
+    const img = document.createElement("img");
+    img.src = thumbUrl;
+    img.style.cssText = "width:40px;height:40px;object-fit:cover;border-radius:4px;flex-shrink:0";
+    container.appendChild(img);
+  }
+
+  const textDiv = document.createElement("div");
+  textDiv.style.cssText = "display:flex;flex-direction:column;gap:2px";
+
+  const titleEl = document.createElement("span");
+  titleEl.textContent = pin.title;
+  titleEl.style.cssText = "font-size:13px;font-weight:600";
+  textDiv.appendChild(titleEl);
+
+  if (pin.reaction) {
+    const reactionEl = document.createElement("span");
+    reactionEl.textContent = REACTION_LABEL_MAP[pin.reaction] ?? "";
+    reactionEl.style.cssText = "font-size:11px;color:#888";
+    textDiv.appendChild(reactionEl);
+  }
+
+  container.appendChild(textDiv);
+  return container;
+}
+
 function createMarker(
   map: maplibregl.Map,
   pin: Pin,
@@ -87,6 +134,15 @@ function createMarker(
     .addTo(map);
   const el = marker.getElement();
   el.style.cursor = "pointer";
+
+  if (pin.reaction) {
+    const badge = document.createElement("div");
+    badge.textContent = REACTION_EMOJI_MAP[pin.reaction] ?? "";
+    badge.style.cssText =
+      "position:absolute;top:-10px;right:-10px;font-size:14px;line-height:1;pointer-events:none;user-select:none";
+    el.style.overflow = "visible";
+    el.appendChild(badge);
+  }
 
   let lpTimer: ReturnType<typeof setTimeout> | null = null;
   let didLongPress = false;
@@ -121,16 +177,26 @@ function createMarker(
     onPinClick(pin);
   });
 
-  const titleEl = document.createElement("span");
-  titleEl.textContent = pin.title;
   const popup = new maplibregl.Popup({
     closeButton: false,
     closeOnClick: false,
     offset: 30,
-  }).setDOMContent(titleEl);
+  }).setDOMContent(buildPopupContent(pin, null));
+
+  let thumbUrl: string | null = null;
+  let thumbLoaded = false;
 
   el.addEventListener("mouseenter", () => {
     popup.setLngLat([pin.coordinates.lng, pin.coordinates.lat]).addTo(map);
+    if (!thumbLoaded) {
+      thumbLoaded = true;
+      getFirstPhotoUrl(pin.id).then((url) => {
+        thumbUrl = url;
+        if (popup.isOpen()) {
+          popup.setDOMContent(buildPopupContent(pin, thumbUrl));
+        }
+      });
+    }
   });
   el.addEventListener("mouseleave", () => {
     popup.remove();
