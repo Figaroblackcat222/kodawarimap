@@ -79,7 +79,7 @@ src/
     │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所フィールド・ダウンロード許可トグル・写真一括追加・撮影日時左寄せ（columnレイアウト）・イベント入力欄（コメント下）・カテゴリー→評価→補足情報の順）
     │   ├── cluster-sheet.tsx       # 同座標ピン一覧シート（クラスターマーカークリック時）
     │   ├── current-location-button.tsx # 現在地flyToボタン
-    │   └── settings-sheet.tsx      # 設定画面（エクスポート・インポート・Overpass POIをR2タイル形式でZIPエクスポート（poi-tiles.zip・ピンのz8タイル単位でOverpass APIを呼び出し・進捗表示付き）・ゴミ箱保持期間・ソート順・表示範囲・昼夜自動テーマ切り替えトグル＋夜間時刻設定）
+    │   └── settings-sheet.tsx      # 設定画面（地図情報更新（POIキャッシュclr+SW更新チェック）・エクスポート・インポート・Overpass POIをR2タイル形式でZIPエクスポート（poi-tiles.zip・ピンのz8タイル単位でOverpass APIを呼び出し・進捗表示付き）・ゴミ箱保持期間・ソート順・表示範囲・昼夜自動テーマ切り替えトグル＋夜間時刻設定）
     └── hooks/                      # カスタムフック（useMediaQuery）
 ```
 

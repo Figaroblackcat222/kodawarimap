@@ -11,6 +11,7 @@ import {
   Eye,
   MapPin,
   Sun,
+  RefreshCw,
 } from "lucide-react";
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { PhotoRepository } from "@application/ports/photo-repository";
@@ -62,6 +63,41 @@ export function SettingsSheet({
     current: number;
     total: number;
   } | null>(null);
+  const [mapUpdateStatus, setMapUpdateStatus] = useState<"idle" | "checking" | "done" | "error">(
+    "idle"
+  );
+
+  const handleMapUpdate = async () => {
+    setMapUpdateStatus("checking");
+    try {
+      // POIタイルキャッシュをすべて削除
+      const keysToDelete: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith("kodawarimap:poi-tile:")) keysToDelete.push(key);
+      }
+      keysToDelete.forEach((k) => localStorage.removeItem(k));
+
+      // Service Worker の更新チェック
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          await reg.update();
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: "SKIP_WAITING" });
+            window.location.reload();
+            return;
+          }
+        }
+      }
+
+      setMapUpdateStatus("done");
+      setTimeout(() => setMapUpdateStatus("idle"), 3000);
+    } catch {
+      setMapUpdateStatus("error");
+      setTimeout(() => setMapUpdateStatus("idle"), 3000);
+    }
+  };
 
   const handleExportPoiGeoJson = async () => {
     setIsExporting(true);
@@ -347,6 +383,37 @@ export function SettingsSheet({
 
       {/* コンテンツ */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+        {/* 地図情報 */}
+        <SectionTitle label="地図情報" />
+
+        <SettingRow
+          icon={<RefreshCw size={18} />}
+          label="最新情報に更新"
+          description="POIキャッシュをクリアしてサーバーから最新の地図データを取得"
+        >
+          <button
+            onClick={handleMapUpdate}
+            disabled={mapUpdateStatus === "checking"}
+            style={btnStyle(
+              mapUpdateStatus === "done"
+                ? "#059669"
+                : mapUpdateStatus === "error"
+                  ? "#dc2626"
+                  : "#6366f1"
+            )}
+          >
+            {mapUpdateStatus === "checking"
+              ? "確認中…"
+              : mapUpdateStatus === "done"
+                ? "最新です"
+                : mapUpdateStatus === "error"
+                  ? "失敗"
+                  : "更新する"}
+          </button>
+        </SettingRow>
+
+        <div style={{ marginTop: 20 }} />
+
         {/* データ管理セクション */}
         <SectionTitle label="データ管理" />
 

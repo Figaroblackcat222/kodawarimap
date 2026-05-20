@@ -47,7 +47,7 @@ src/
                          # photo-upload-button（スマホ・PCともにテキスト常時表示）, category-selector,
                          # pin-list-sheet（3段階スナップ44px/40%/80%・ピルハンドル中央・ソート・表示範囲・reactionフィルター・タイトル行にreaction絵文字インライン表示・撮影日時右隣にevent表示・キーワード検索がevent対象・ピン選択で地図マーカー最前面含む）,
                          # pin-detail-sheet（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所（location）フィールド・ダウンロード許可トグル・写真一括追加・関連動画リンク・撮影日時左寄せ（columnレイアウト）・イベント入力欄（コメント下）含む）,
-                         # cluster-sheet, current-location-button, settings-sheet（ソート順・表示範囲設定・Overpass POI をR2タイル形式でZIPエクスポート（poi-tiles.zip・進捗表示付き）・昼夜自動テーマ切り替えトグル＋時刻設定含む）,
+                         # cluster-sheet, current-location-button, settings-sheet（地図情報更新（POIキャッシュclr+SW更新チェック）・ソート順・表示範囲設定・Overpass POI をR2タイル形式でZIPエクスポート（poi-tiles.zip・進捗表示付き）・昼夜自動テーマ切り替えトグル＋時刻設定含む）,
                          # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ）
 public/                      # PWA静的アセット（アイコン・favicon）
 scripts/
