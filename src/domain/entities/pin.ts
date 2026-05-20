@@ -24,6 +24,8 @@ export interface Pin {
   title: string;
   categoryId?: string;
   comment?: string;
+  event?: string;
+  location?: string;
   url?: string;
   videoUrl?: string;
   exif?: PinExif;

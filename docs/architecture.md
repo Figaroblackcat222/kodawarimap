@@ -2,21 +2,21 @@
 
 ## 技術スタック
 
-| 領域           | 採用                                | 備考                                           |
-| -------------- | ----------------------------------- | ---------------------------------------------- |
-| 言語           | TypeScript                          | 全レイヤー                                     |
-| フロントエンド | React + Vite（SPA / PWA）           | SSR不要のローカルファースト                    |
-| 地図エンジン   | MapLibre GL JS v5                   | ベクタータイル＋動的スタイル切替               |
-| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv9）                     |
-| オフライン     | Service Worker（vite-plugin-pwa）   | タイルキャッシュ／エリア保存                   |
-| バックエンド   | なし（MVPは100%クライアント）       | クラウド同期は将来                             |
-| ベクタータイル | 開発: CARTO Free Basemaps           | 本番: Protomaps PMTiles 自己ホスト（移行予定） |
-| ホスティング   | Cloudflare Pages + R2               | egress無料                                     |
-| 設計パターン   | プラグマティック Clean Architecture | 4層・依存は内向き                              |
-| Exif解析       | exifr                               | GPS・撮影情報・カメラ設定値を抽出              |
-| 画像変換       | heic-to（libheif 1.21.2）           | HEIC/HEIF → JPEG 変換（全ブラウザ対応）        |
-| ユニットテスト | Vitest                              | domain / application 層                        |
-| E2Eテスト      | Playwright                          | 主要フロー検証                                 |
+| 領域           | 採用                                | 備考                                                       |
+| -------------- | ----------------------------------- | ---------------------------------------------------------- |
+| 言語           | TypeScript                          | 全レイヤー                                                 |
+| フロントエンド | React + Vite（SPA / PWA）           | SSR不要のローカルファースト                                |
+| 地図エンジン   | MapLibre GL JS v5                   | ベクタータイル＋動的スタイル切替                           |
+| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv9）                                 |
+| オフライン     | Service Worker（vite-plugin-pwa）   | タイルキャッシュ／エリア保存                               |
+| バックエンド   | なし（MVPは100%クライアント）       | クラウド同期は将来                                         |
+| ベクタータイル | Protomaps PMTiles（自己ホスト）     | Cloudflare R2配信・`pmtiles` + `@protomaps/basemaps`で描画 |
+| ホスティング   | Cloudflare Pages + R2               | egress無料                                                 |
+| 設計パターン   | プラグマティック Clean Architecture | 4層・依存は内向き                                          |
+| Exif解析       | exifr                               | GPS・撮影情報・カメラ設定値を抽出                          |
+| 画像変換       | heic-to（libheif 1.21.2）           | HEIC/HEIF → JPEG 変換（全ブラウザ対応）                    |
+| ユニットテスト | Vitest                              | domain / application 層                                    |
+| E2Eテスト      | Playwright                          | 主要フロー検証                                             |
 
 ## 選定理由（要約）
 
@@ -45,7 +45,7 @@ src/
 │   │   └── photo-repository.ts    # PhotoRepository インターフェース
 │   └── use-cases/
 │       ├── add-pin.ts             # ピン追加（Exif含む）
-│       ├── update-pin.ts          # タイトル・カテゴリー・コメント・URL・videoUrl・Exif・reaction更新
+│       ├── update-pin.ts          # タイトル・カテゴリー・コメント・URL・videoUrl・Exif・reaction・event・location更新
 │       ├── soft-delete-pin.ts     # 論理削除（ゴミ箱へ）
 │       ├── restore-pin.ts         # ゴミ箱から復元
 │       ├── hard-delete-pin.ts     # 物理削除（ゴミ箱内のピンを完全削除）
@@ -62,18 +62,24 @@ src/
 │   │   ├── normalize-photo.ts     # HEIC/HEIF → JPEG 変換（heic-to）
 │   │   └── write-exif.ts          # JPEGへのEXIF書き戻し（piexifjs）+ ダウンロード実行（showSaveFilePicker / Web Share API / <a download>）
 │   ├── map/
-│   │   └── use-map.ts             # MapLibre初期化フック（click/dblclick / スタイル切替）。マーカー長押し検出は map-view.tsx 内 createMarker で実装
-│   └── cache/                     # TileCacheAdapter（未実装・PMTiles移行後）
+│   │   ├── use-map.ts             # MapLibre初期化フック（PMTilesプロトコル登録・click/dblclick / スタイル切替）。マーカー長押し検出は map-view.tsx 内 createMarker で実装
+│   │   └── protomaps-style.ts     # Protomapsスタイル生成（light/dark/grayscaleテーマ・日本語ラベル・R2 PMTilesソース）
+│   ├── poi/
+│   │   ├── r2-poi-client.ts       # R2から poi/z8/{x}/{y}.geojson を取得（404は null で返す）
+│   │   ├── overpass-client.ts     # Overpass API呼び出し・OSMタグ→categoryIdマッピング・GeoJSON変換
+│   │   ├── poi-loader.ts          # ローカルキャッシュ→R2タイル→Overpassの優先順で取得（z8タイル単位でlocalStorageキャッシュ）
+│   │   └── tile-utils.ts          # lngLatToTile / tileToBbox（z8タイル座標計算ユーティリティ）
+│   └── cache/                     # TileCacheAdapter（未実装）
 └── presentation/                  # React コンポーネント / hooks
     ├── components/
-    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・reactionバッジ・リッチツールチップ遅延サムネイル）
+    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・reactionバッジ（白丸中央配置）・リッチツールチップ遅延サムネイル（写真2枚以上で枚数バッジ）・ピン作成時z8タイルPOI取得・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin変化時に対応マーカーをz-index:1000で最前面表示）
     │   ├── photo-upload-button.tsx # 写真追加ボタン（スマホ・PCともに「写真から記録」テキスト常時表示）
     │   ├── category-selector.tsx   # カテゴリー選択ピル（地図スタイル切替・固定白背景）
-    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・reactionフィルター・ゴミ箱・ダークモード対応）
-    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・補足情報accordion・ダウンロード許可トグル・写真一括追加・カテゴリー→評価→補足情報の順）
+    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・reactionフィルター・ゴミ箱・ダークモード対応・タイトル行にreaction絵文字インライン表示・撮影日時右隣にevent表示・キーワード検索がevent対象・ピン選択で対応マーカーを最前面）
+    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所フィールド・ダウンロード許可トグル・写真一括追加・撮影日時左寄せ（columnレイアウト）・イベント入力欄（コメント下）・カテゴリー→評価→補足情報の順）
     │   ├── cluster-sheet.tsx       # 同座標ピン一覧シート（クラスターマーカークリック時）
     │   ├── current-location-button.tsx # 現在地flyToボタン
-    │   └── settings-sheet.tsx      # 設定画面（エクスポート・インポート・ゴミ箱保持期間・ソート順・表示範囲）
+    │   └── settings-sheet.tsx      # 設定画面（エクスポート・インポート・Overpass POIをR2タイル形式でZIPエクスポート（poi-tiles.zip・ピンのz8タイル単位でOverpass APIを呼び出し・進捗表示付き）・ゴミ箱保持期間・ソート順・表示範囲・昼夜自動テーマ切り替えトグル＋夜間時刻設定）
     └── hooks/                      # カスタムフック（useMediaQuery）
 ```
 
@@ -103,6 +109,8 @@ interface Pin {
     iso?: number; // ISO感度
   };
   reaction?: "want_to_revisit" | "once_was_enough" | "never_again"; // 自己評価リアクション（任意）
+  event?: string; // イベント名・行事など任意入力テキスト
+  location?: string; // 撮影場所（地名）。PMTilesのplacesレイヤーから自動取得・任意編集可
   createdAt: Date;
   deletedAt?: Date; // ゴミ箱: 設定日時。undefined = アクティブ
 }
@@ -139,25 +147,31 @@ interface Photo {
 
 **pins テーブル**  
 インデックス: `id, createdAt, deletedAt, categoryId`  
-フィールド: Exif全フィールド（フラット保存）＋ `comment` ＋ `url` ＋ `videoUrl` ＋ `takenAtEstimated` ＋ `reaction`（任意）
+フィールド: Exif全フィールド（フラット保存）＋ `comment` ＋ `url` ＋ `videoUrl` ＋ `takenAtEstimated` ＋ `reaction`（任意）＋ `event`（任意・イベント名）＋ `location`（任意・撮影場所地名）
 
 **photos テーブル**  
 インデックス: `id, pinId, createdAt`  
 写真 Blob + Exifフィールド（`exifTakenAt`・`exifTakenAtEstimated` 等フラット）+ ファイル情報（`originalFileName` 等）を pinId で紐づけて保存。完全削除時は紐づく photos も一括削除。`restore()` メソッドで元の ID を保持したままインポート復元が可能。
 
-### カテゴリープリセット（開発中）
+### カテゴリープリセット
 
-表示順・GPS マージ閾値：
+表示順・GPS マージ閾値（11カテゴリー）：
 
-| id      | name | 地図スタイル        | GPS閾値 |
-| ------- | ---- | ------------------- | ------- |
-| general | 汎用 | CARTO Voyager       | 50m     |
-| food    | 食事 | CARTO Voyager       | 5m      |
-| hiking  | 登山 | CARTO Positron      | 100m    |
-| night   | 夜景 | CARTO Dark Matter   | 30m     |
-| fishing | 釣り | MapLibre Demo Tiles | 30m     |
+| id            | name         | emoji | 地図スタイル        | GPS閾値 |
+| ------------- | ------------ | ----- | ------------------- | ------- |
+| general       | 汎用         | 🗺️    | Protomaps light     | 50m     |
+| food          | 食事         | 🍽️    | Protomaps light     | 5m      |
+| hiking        | 登山         | ⛰️    | Protomaps grayscale | 100m    |
+| fishing       | 釣り         | 🎣    | Protomaps light     | 30m     |
+| travel        | 旅行         | 🧳    | Protomaps light     | 50m     |
+| theme_park    | テーマパーク | 🎡    | Protomaps light     | 50m     |
+| shrine_temple | 神社仏閣     | ⛩️    | Protomaps light     | 30m     |
+| camping       | キャンプ     | ⛺    | Protomaps grayscale | 100m    |
+| onsen         | 温泉         | ♨️    | Protomaps light     | 30m     |
+| beach         | 海・ビーチ   | 🏖️    | Protomaps light     | 50m     |
+| nature        | 公園・自然   | 🌿    | Protomaps grayscale | 50m     |
 
-> 本番はすべて Protomaps PMTiles スタイルに差し替える予定。
+lightカテゴリーは「昼夜自動テーマ」ON・夜間時刻帯のとき Protomaps dark に切り替わる（grayscaleカテゴリーは常時固定）。
 
 ## ピン操作フロー
 
@@ -167,13 +181,13 @@ interface Photo {
        ├─ GPS あり → normalizePhoto() → HEIC なら JPEG 変換（heic-to）
        │              ├─ photoExif / fileInfo / pinExif を構築
        │              │    takenAt: Exif値 ?? file.lastModified（推定）。推定時は takenAtEstimated: true を付与
-       │              ├─ カテゴリー別閾値（汎用50m/食事5m/登山100m/夜景・釣り30m）以内のピンを取得（nearbyPins）
+       │              ├─ カテゴリー別閾値（汎用・旅行・テーマパーク・海ビーチ・公園自然50m/食事5m/登山・キャンプ100m/釣り・神社仏閣・温泉30m）以内のピンを取得（nearbyPins）
        │              ├─ 同日のピンが存在（takenAt あり）or 最近傍ピン（takenAt なし）→ マージ確認バー表示（青）
        │              │    ├─ 「追加する」→ photoRepo.save(…) → 既存ピンに写真追加
        │              │    └─ 「新規ピンを作成」→ 仮置きモードへ（GPS座標に琥珀色ドラッグ可能マーカー）
-       │              └─ 閾値外 or 別日 → 仮置きモードへ（タイトル・カテゴリーは最近傍ピンから継承）
+       │              └─ 閾値外 or 別日 → 仮置きモードへ（タイトル・カテゴリーは最近傍ピンから継承。最近傍なし → getPlaceName()で地名取得してタイトルに反映）
        │                   ├─ ユーザーがマーカーをドラッグして位置調整
-       │                   ├─ 「ここに決定」→ addPin()（確定座標・マージなし）
+       │                   ├─ 「ここに決定」→ addPin()（確定座標・title=地名・location=地名を保存・マージなし）
        │                   │                   └─ photoRepo.save(…) → setPins → syncMarkers
        │                   └─ 「キャンセル」→ 仮置きマーカー破棄
        └─ GPS なし → メッセージ表示（地図ダブルクリックで手動追加）
@@ -182,11 +196,13 @@ interface Photo {
   └─ longPressPin が表示中なら閉じる。それ以外は flyTo（現在ズーム +1）
 
 地図ダブルクリック
-  └─ addPin() → IndexedDB保存 → setPins → syncMarkers
+  └─ getPlaceName(map, lng, lat) → `places_subplace` / `places_locality` レイヤーから地名取得
+       └─ addPin()（title = 地名 or 空文字）→ IndexedDB保存 → setPins → syncMarkers
 
 マーカーホバー（PC）
   └─ リッチ Popup を表示（タイトル + reaction ラベル + 遅延読み込みサムネイル）
        初回 mouseenter 時に getFirstPhotoUrl() で IndexedDB から先頭写真を取得しキャッシュ
+       getPhotoInfo() で写真枚数も取得し、2枚以上の場合はサムネイル右下に「n枚」バッジを表示
 
 マーカークリック（単一ピン）
   └─ setSelectedPin(pin) → 詳細シートを表示。flyTo（padding + offset でカテゴリセレクター付近に配置）

@@ -1,7 +1,21 @@
 import { useState } from "react";
-import { X, Download, Upload, Clock, Map, Shield, Globe, ArrowUpDown, Eye } from "lucide-react";
+import {
+  X,
+  Download,
+  Upload,
+  Clock,
+  Map as MapIcon,
+  Shield,
+  Globe,
+  ArrowUpDown,
+  Eye,
+  MapPin,
+  Sun,
+} from "lucide-react";
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { PhotoRepository } from "@application/ports/photo-repository";
+import { lngLatToTile, tileToBbox } from "../../infrastructure/poi/tile-utils";
+import { fetchPoiFromOverpass } from "../../infrastructure/poi/overpass-client";
 
 interface Props {
   pinRepo: PinRepository;
@@ -14,6 +28,12 @@ interface Props {
   onSortOrderChange: (v: "date" | "title") => void;
   listScope: "all" | "visible";
   onListScopeChange: (v: "all" | "visible") => void;
+  autoNightMode: boolean;
+  onAutoNightModeChange: (v: boolean) => void;
+  nightStart: string;
+  onNightStartChange: (v: string) => void;
+  nightEnd: string;
+  onNightEndChange: (v: string) => void;
 }
 
 const RETENTION_OPTIONS = [7, 14, 30, 60, 90] as const;
@@ -29,9 +49,65 @@ export function SettingsSheet({
   onSortOrderChange,
   listScope,
   onListScopeChange,
+  autoNightMode,
+  onAutoNightModeChange,
+  nightStart,
+  onNightStartChange,
+  nightEnd,
+  onNightEndChange,
 }: Props) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [poiExportProgress, setPoiExportProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
+
+  const handleExportPoiGeoJson = async () => {
+    setIsExporting(true);
+    try {
+      const pins = await pinRepo.findAll();
+      if (pins.length === 0) {
+        alert("ピンがありません。先にピンを追加してください。");
+        return;
+      }
+
+      const tileSet = new Map<string, { x: number; y: number }>();
+      for (const pin of pins) {
+        const { x, y } = lngLatToTile(pin.coordinates.lng, pin.coordinates.lat, 8);
+        tileSet.set(`${x}:${y}`, { x, y });
+      }
+      const tiles = Array.from(tileSet.values());
+      const total = tiles.length;
+
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+
+      for (let i = 0; i < tiles.length; i++) {
+        const { x, y } = tiles[i];
+        setPoiExportProgress({ current: i + 1, total });
+        const bbox = tileToBbox(x, y, 8);
+        try {
+          const features = await fetchPoiFromOverpass(bbox);
+          zip.file(
+            `poi/z8/${x}/${y}.geojson`,
+            JSON.stringify({ type: "FeatureCollection", features })
+          );
+        } catch (err) {
+          console.warn(`POI取得失敗 tile(${x},${y}):`, err);
+        }
+        if (i < tiles.length - 1) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      downloadBlob(zipBlob, "poi-tiles.zip");
+    } finally {
+      setIsExporting(false);
+      setPoiExportProgress(null);
+    }
+  };
 
   const handleExportJson = async () => {
     setIsExporting(true);
@@ -288,6 +364,22 @@ export function SettingsSheet({
         </SettingRow>
 
         <SettingRow
+          icon={<MapPin size={18} />}
+          label="POI GeoJSONエクスポート"
+          description="ピン周辺のOverpass POIをR2タイル形式（poi/z8/{x}/{y}.geojson）でZIP出力"
+        >
+          <button
+            onClick={handleExportPoiGeoJson}
+            disabled={isExporting}
+            style={btnStyle("#059669")}
+          >
+            {poiExportProgress
+              ? `POI取得中... (${poiExportProgress.current}/${poiExportProgress.total})`
+              : "poi-tiles.zip"}
+          </button>
+        </SettingRow>
+
+        <SettingRow
           icon={<Upload size={18} />}
           label="インポート"
           description="JSON（ピンのみ）またはZIP（写真込み）から復元"
@@ -302,6 +394,107 @@ export function SettingsSheet({
             />
           </label>
         </SettingRow>
+
+        <div style={{ marginTop: 20 }} />
+
+        {/* 地図テーマ */}
+        <SectionTitle label="地図テーマ" />
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "12px 0",
+            borderBottom: autoNightMode ? "none" : "1px solid var(--border-light)",
+          }}
+        >
+          <span style={{ color: "var(--text-secondary)", flexShrink: 0 }}>
+            <Sun size={18} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+              昼夜自動切り替え
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              時刻に応じてライト/ダークマップを自動切替
+            </div>
+          </div>
+          <button
+            role="switch"
+            aria-checked={autoNightMode}
+            onClick={() => onAutoNightModeChange(!autoNightMode)}
+            style={{
+              flexShrink: 0,
+              width: 44,
+              height: 24,
+              borderRadius: 12,
+              border: "none",
+              cursor: "pointer",
+              background: autoNightMode ? "#6366f1" : "var(--border)",
+              position: "relative",
+              transition: "background 0.2s",
+              padding: 0,
+            }}
+          >
+            <span
+              style={{
+                display: "block",
+                width: 18,
+                height: 18,
+                borderRadius: "50%",
+                background: "#fff",
+                position: "absolute",
+                top: 3,
+                left: autoNightMode ? 23 : 3,
+                transition: "left 0.2s",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+              }}
+            />
+          </button>
+        </div>
+
+        {autoNightMode && (
+          <div
+            style={{
+              borderBottom: "1px solid var(--border-light)",
+              paddingBottom: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "8px 0 8px 30px",
+              }}
+            >
+              <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>夜間開始</div>
+              <input
+                type="time"
+                value={nightStart}
+                onChange={(e) => onNightStartChange(e.target.value)}
+                style={selectStyle}
+              />
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "8px 0 0 30px",
+              }}
+            >
+              <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>夜間終了</div>
+              <input
+                type="time"
+                value={nightEnd}
+                onChange={(e) => onNightEndChange(e.target.value)}
+                style={selectStyle}
+              />
+            </div>
+          </div>
+        )}
 
         <div style={{ marginTop: 20 }} />
 
@@ -376,7 +569,7 @@ export function SettingsSheet({
         <SectionTitle label="将来の機能" />
 
         <ComingSoonRow
-          icon={<Map size={18} />}
+          icon={<MapIcon size={18} />}
           label="オフラインマップ"
           description="エリアを保存してオフラインで地図を閲覧"
         />

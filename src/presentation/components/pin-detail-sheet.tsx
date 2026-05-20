@@ -67,6 +67,8 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
   const [title, setTitle] = useState(pin.title);
   const [categoryId, setCategoryId] = useState(pin.categoryId ?? DEFAULT_CATEGORY.id);
   const [comment, setComment] = useState(pin.comment ?? "");
+  const [event, setEvent] = useState(pin.event ?? "");
+  const [location, setLocation] = useState(pin.location ?? "");
   const [url, setUrl] = useState(pin.url ?? "");
   const [videoUrl, setVideoUrl] = useState(pin.videoUrl ?? "");
   const [takenAt, setTakenAt] = useState<string>(
@@ -123,6 +125,8 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
       title: title.trim() || pin.title,
       categoryId,
       comment: comment.trim() || undefined,
+      event: event.trim() || undefined,
+      location: location.trim() || undefined,
       url: url.trim() || undefined,
       videoUrl: videoUrl.trim() || undefined,
       exif: updatedExif,
@@ -269,60 +273,52 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
           >
             {/* 撮影日時 */}
             <div>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                  <label style={{ fontSize: 14, color: "var(--text-secondary)" }}>撮影日時</label>
-                  {!isEditingTakenAt && (
-                    <button
-                      onClick={() => setIsEditingTakenAt(true)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        padding: 2,
-                        cursor: "pointer",
-                        color: "var(--text-muted)",
-                        display: "flex",
-                        alignItems: "center",
-                      }}
-                      title="撮影日時を編集"
-                    >
-                      <Pencil size={11} />
-                    </button>
-                  )}
-                </div>
-                {isEditingTakenAt ? (
-                  <input
-                    type="datetime-local"
-                    value={takenAt}
-                    onChange={(e) => setTakenAt(e.target.value)}
-                    autoFocus
+              <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+                <label style={{ fontSize: 14, color: "var(--text-secondary)" }}>撮影日時</label>
+                {!isEditingTakenAt && (
+                  <button
+                    onClick={() => setIsEditingTakenAt(true)}
                     style={{
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      border: "1.5px solid var(--border)",
-                      fontSize: 12,
-                      outline: "none",
-                      background: "var(--input-bg)",
-                      color: "var(--text-primary)",
+                      background: "none",
+                      border: "none",
+                      padding: 2,
+                      cursor: "pointer",
+                      color: "var(--text-muted)",
+                      display: "flex",
+                      alignItems: "center",
                     }}
-                  />
-                ) : (
-                  <span style={{ fontSize: 15, color: "var(--text-primary)" }}>
-                    {takenAt ? new Date(takenAt).toLocaleString("ja-JP") : "未設定"}
-                    {pin.exif?.takenAtEstimated && (
-                      <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>
-                        （推定）
-                      </span>
-                    )}
-                  </span>
+                    title="撮影日時を編集"
+                  >
+                    <Pencil size={11} />
+                  </button>
                 )}
               </div>
+              {isEditingTakenAt ? (
+                <input
+                  type="datetime-local"
+                  value={takenAt}
+                  onChange={(e) => setTakenAt(e.target.value)}
+                  autoFocus
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1.5px solid var(--border)",
+                    fontSize: 12,
+                    outline: "none",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              ) : (
+                <span style={{ fontSize: 15, color: "var(--text-primary)" }}>
+                  {takenAt ? new Date(takenAt).toLocaleString("ja-JP") : "未設定"}
+                  {pin.exif?.takenAtEstimated && (
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>
+                      （推定）
+                    </span>
+                  )}
+                </span>
+              )}
             </div>
 
             {/* 写真プレビュー */}
@@ -389,60 +385,93 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
                     const url = photoUrls.get(photo.id);
                     if (!url) return null;
                     return (
-                      <div key={photo.id} style={{ position: "relative", flexShrink: 0 }}>
-                        <img
-                          src={url}
-                          alt=""
-                          onClick={() => setLightboxIndex(visiblePhotos.indexOf(photo))}
-                          style={{
-                            width: 100,
-                            height: 100,
-                            objectFit: "cover",
-                            borderRadius: 8,
-                            display: "block",
-                            cursor: "zoom-in",
-                          }}
-                        />
-                        <button
-                          onClick={() => handleDeletePhoto(photo.id)}
-                          style={{
-                            position: "absolute",
-                            top: 4,
-                            right: 4,
-                            background: "rgba(0,0,0,0.5)",
-                            border: "none",
-                            borderRadius: "50%",
-                            width: 20,
-                            height: 20,
-                            color: "#fff",
-                            fontSize: 10,
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            lineHeight: 1,
-                          }}
-                        >
-                          ✕
-                        </button>
-                        <button
-                          onClick={() => onSplitPhoto(photo)}
-                          style={{
-                            position: "absolute",
-                            top: 4,
-                            left: 4,
-                            background: "rgba(0,0,0,0.5)",
-                            border: "none",
-                            borderRadius: 4,
-                            padding: "2px 5px",
-                            color: "#fff",
-                            fontSize: 9,
-                            cursor: "pointer",
-                            lineHeight: 1.4,
-                          }}
-                        >
-                          分割
-                        </button>
+                      <div
+                        key={photo.id}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          flexShrink: 0,
+                          gap: 4,
+                        }}
+                      >
+                        <div style={{ position: "relative" }}>
+                          <img
+                            src={url}
+                            alt=""
+                            onClick={() => setLightboxIndex(visiblePhotos.indexOf(photo))}
+                            style={{
+                              width: 100,
+                              height: 100,
+                              objectFit: "cover",
+                              borderRadius: 8,
+                              display: "block",
+                              cursor: "zoom-in",
+                            }}
+                          />
+                          <button
+                            onClick={() => handleDeletePhoto(photo.id)}
+                            style={{
+                              position: "absolute",
+                              top: 4,
+                              right: 4,
+                              background: "rgba(0,0,0,0.5)",
+                              border: "none",
+                              borderRadius: "50%",
+                              width: 20,
+                              height: 20,
+                              color: "#fff",
+                              fontSize: 10,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              lineHeight: 1,
+                            }}
+                          >
+                            ✕
+                          </button>
+                          <button
+                            onClick={() => onSplitPhoto(photo)}
+                            style={{
+                              position: "absolute",
+                              top: 4,
+                              left: 4,
+                              background: "rgba(0,0,0,0.5)",
+                              border: "none",
+                              borderRadius: 4,
+                              padding: "2px 5px",
+                              color: "#fff",
+                              fontSize: 9,
+                              cursor: "pointer",
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            分割
+                          </button>
+                        </div>
+                        {photo.exif?.takenAt && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: "var(--text-muted)",
+                              whiteSpace: "nowrap",
+                              lineHeight: 1.3,
+                              textAlign: "center",
+                              maxWidth: 100,
+                            }}
+                          >
+                            {photo.exif.takenAt.toLocaleString("ja-JP", {
+                              month: "numeric",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                            {photo.exif.takenAtEstimated && (
+                              <span style={{ color: "var(--text-muted)" }}> 推定</span>
+                            )}
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -519,6 +548,36 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
                   fontFamily: "inherit",
                   color: "var(--text-primary)",
                   background: "var(--input-bg)",
+                }}
+              />
+            </div>
+
+            {/* イベント */}
+            <div>
+              <label
+                style={{
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  display: "block",
+                  marginBottom: 4,
+                }}
+              >
+                イベント
+              </label>
+              <input
+                value={event}
+                onChange={(e) => setEvent(e.target.value)}
+                placeholder="例：夏祭り、家族旅行、卒業式…"
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: "1.5px solid var(--border)",
+                  fontSize: 14,
+                  outline: "none",
+                  boxSizing: "border-box",
+                  background: "var(--input-bg)",
+                  color: "var(--text-primary)",
                 }}
               />
             </div>
@@ -627,6 +686,35 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
               </button>
               {isOtherInfoOpen && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 12 }}>
+                  {/* 撮影場所 */}
+                  <div>
+                    <label
+                      style={{
+                        fontSize: 14,
+                        color: "var(--text-secondary)",
+                        display: "block",
+                        marginBottom: 4,
+                      }}
+                    >
+                      撮影場所
+                    </label>
+                    <input
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                      placeholder="地名を入力…"
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: 8,
+                        border: "1.5px solid var(--border)",
+                        fontSize: 14,
+                        outline: "none",
+                        boxSizing: "border-box",
+                        background: "var(--input-bg)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                  </div>
                   {/* 外部リンク */}
                   <div>
                     <label

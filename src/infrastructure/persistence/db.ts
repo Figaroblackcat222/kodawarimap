@@ -7,6 +7,8 @@ interface PinRecord {
   title: string;
   categoryId?: string;
   comment?: string;
+  event?: string;
+  location?: string;
   url?: string;
   videoUrl?: string;
   allowPhotoDownload?: boolean;

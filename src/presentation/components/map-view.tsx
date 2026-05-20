@@ -1,7 +1,10 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import type { Feature } from "geojson";
 import { useMap } from "@infrastructure/map/use-map";
+import { loadPoiTile } from "@infrastructure/poi/poi-loader";
+import { lngLatToTile } from "@infrastructure/poi/tile-utils";
 import type { Pin, PinExif } from "@domain/entities/pin";
 import type { Photo, PhotoExif, PhotoFileInfo } from "@domain/entities/photo";
 import { parseExif } from "@infrastructure/exif/exif-parser";
@@ -29,6 +32,9 @@ const SHEET_HEIGHT_KEY = "kodawarimap:sheet-height";
 const TRASH_RETENTION_KEY = "kodawarimap:trash-retention-days";
 const SORT_ORDER_KEY = "kodawarimap:sort-order";
 const LIST_SCOPE_KEY = "kodawarimap:list-scope";
+const AUTO_NIGHT_MODE_KEY = "kodawarimap:auto-night-mode";
+const NIGHT_START_KEY = "kodawarimap:night-start";
+const NIGHT_END_KEY = "kodawarimap:night-end";
 
 function getInitialSheetHeight(): number {
   const raw = parseInt(localStorage.getItem(SHEET_HEIGHT_KEY) ?? "0", 10);
@@ -47,14 +53,41 @@ type MapBounds = { west: number; east: number; south: number; north: number };
 
 const CATEGORY_MERGE_RADIUS: Record<string, number> = {
   general: 50,
-  hiking: 100,
-  night: 30,
-  fishing: 30,
   food: 5,
+  hiking: 100,
+  fishing: 30,
+  travel: 50,
+  theme_park: 50,
+  shrine_temple: 30,
+  camping: 100,
+  onsen: 30,
+  beach: 50,
+  nature: 50,
 };
 
 function getMergeRadius(categoryId: string): number {
   return CATEGORY_MERGE_RADIUS[categoryId] ?? 30;
+}
+
+function getEffectiveStyleUrl(
+  styleUrl: string,
+  autoNightMode: boolean,
+  nightStart: string,
+  nightEnd: string
+): string {
+  if (!autoNightMode || styleUrl !== "protomaps:light") return styleUrl;
+  const now = new Date();
+  const [startH, startM] = nightStart.split(":").map(Number);
+  const [endH, endM] = nightEnd.split(":").map(Number);
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const startMins = startH * 60 + startM;
+  const endMins = endH * 60 + endM;
+  // 日をまたぐ場合（例: 18:00 〜 06:00）を考慮
+  const isNight =
+    startMins > endMins
+      ? nowMins >= startMins || nowMins < endMins
+      : nowMins >= startMins && nowMins < endMins;
+  return isNight ? "protomaps:dark" : styleUrl;
 }
 
 function isSameDay(a: Date, b: Date): boolean {
@@ -87,20 +120,94 @@ const REACTION_LABEL_MAP: Record<string, string> = {
   never_again: "😩 二度と行かない",
 };
 
-async function getFirstPhotoUrl(pinId: string): Promise<string | null> {
-  const photos = await dexiePhotoRepository.findByPinId(pinId);
-  return photos.length > 0 ? URL.createObjectURL(photos[0].blob) : null;
+const CATEGORY_EMOJI: Record<string, string> = Object.fromEntries(
+  PRESET_CATEGORIES.map((c) => [c.id, c.emoji])
+);
+
+function createEmojiImage(emoji: string, size = 48): ImageData {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.font = `${size * 0.8}px serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, size / 2, size / 2);
+  return ctx.getImageData(0, 0, size, size);
 }
 
-function buildPopupContent(pin: Pin, thumbUrl: string | null): HTMLElement {
+function setupPoiLayer(map: maplibregl.Map): void {
+  for (const [categoryId, emoji] of Object.entries(CATEGORY_EMOJI)) {
+    if (!map.hasImage(`poi-${categoryId}`)) {
+      map.addImage(`poi-${categoryId}`, createEmojiImage(emoji), { pixelRatio: 2 });
+    }
+  }
+  if (!map.getSource("poi-data")) {
+    map.addSource("poi-data", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+  }
+  if (!map.getLayer("poi-icons")) {
+    map.addLayer({
+      id: "poi-icons",
+      type: "symbol",
+      source: "poi-data",
+      layout: {
+        "icon-image": ["concat", "poi-", ["coalesce", ["get", "categoryId"], "general"]],
+        "icon-size": 0.7,
+        "icon-allow-overlap": false,
+        "text-field": ["get", "name"],
+        "text-size": 11,
+        "text-offset": [0, 1.5],
+        "text-optional": true,
+      },
+      paint: {
+        "text-color": "#333",
+        "text-halo-color": "#fff",
+        "text-halo-width": 1,
+      },
+    });
+  }
+}
+
+function getPlaceName(map: maplibregl.Map, lng: number, lat: number): string | null {
+  const point = map.project([lng, lat]);
+  const features = map.queryRenderedFeatures(point, {
+    layers: ["places_subplace", "places_locality"],
+  });
+  if (features.length === 0) return null;
+  const props = features[0].properties ?? {};
+  return (props["name:ja"] ?? props["name"] ?? null) as string | null;
+}
+
+async function getPhotoInfo(pinId: string): Promise<{ url: string | null; count: number }> {
+  const photos = await dexiePhotoRepository.findByPinId(pinId);
+  return {
+    url: photos.length > 0 ? URL.createObjectURL(photos[0].blob) : null,
+    count: photos.length,
+  };
+}
+
+function buildPopupContent(pin: Pin, thumbUrl: string | null, photoCount = 0): HTMLElement {
   const container = document.createElement("div");
   container.style.cssText = "display:flex;align-items:center;gap:8px;min-width:120px";
 
   if (thumbUrl) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "position:relative;flex-shrink:0";
     const img = document.createElement("img");
     img.src = thumbUrl;
-    img.style.cssText = "width:40px;height:40px;object-fit:cover;border-radius:4px;flex-shrink:0";
-    container.appendChild(img);
+    img.style.cssText = "width:40px;height:40px;object-fit:cover;border-radius:4px;display:block";
+    wrap.appendChild(img);
+    if (photoCount > 1) {
+      const badge = document.createElement("span");
+      badge.textContent = `${photoCount}枚`;
+      badge.style.cssText =
+        "position:absolute;bottom:2px;right:2px;background:rgba(0,0,0,0.55);color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;line-height:1.4";
+      wrap.appendChild(badge);
+    }
+    container.appendChild(wrap);
   }
 
   const textDiv = document.createElement("div");
@@ -139,7 +246,7 @@ function createMarker(
     const badge = document.createElement("div");
     badge.textContent = REACTION_EMOJI_MAP[pin.reaction] ?? "";
     badge.style.cssText =
-      "position:absolute;top:-10px;right:-10px;font-size:14px;line-height:1;pointer-events:none;user-select:none";
+      "position:absolute;top:13.5px;left:13.5px;transform:translate(-50%,-50%);font-size:10px;line-height:1;pointer-events:none;user-select:none";
     el.style.overflow = "visible";
     el.appendChild(badge);
   }
@@ -184,16 +291,18 @@ function createMarker(
   }).setDOMContent(buildPopupContent(pin, null));
 
   let thumbUrl: string | null = null;
+  let photoCount = 0;
   let thumbLoaded = false;
 
   el.addEventListener("mouseenter", () => {
     popup.setLngLat([pin.coordinates.lng, pin.coordinates.lat]).addTo(map);
     if (!thumbLoaded) {
       thumbLoaded = true;
-      getFirstPhotoUrl(pin.id).then((url) => {
+      getPhotoInfo(pin.id).then(({ url, count }) => {
         thumbUrl = url;
+        photoCount = count;
         if (popup.isOpen()) {
-          popup.setDOMContent(buildPopupContent(pin, thumbUrl));
+          popup.setDOMContent(buildPopupContent(pin, thumbUrl, photoCount));
         }
       });
     }
@@ -251,6 +360,7 @@ type ProvisionalPinData = {
   photoExif: PhotoExif;
   fileInfo: PhotoFileInfo;
   title: string;
+  titleIsFile: boolean;
   categoryId: string;
   pinExif: PinExif;
   initialCoordinates: { lng: number; lat: number };
@@ -294,6 +404,19 @@ export function MapView() {
     () => (localStorage.getItem(LIST_SCOPE_KEY) as ListScope) ?? "all"
   );
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
+  const allPoiFeaturesRef = useRef<Feature[] | null>(null);
+  const loadedTilesRef = useRef<Set<string>>(new Set());
+  const [poiFeatures, setPoiFeatures] = useState<Feature[]>([]);
+  const poiFeaturesRef = useRef<Feature[]>([]);
+  const categoryIdRef = useRef(category.id);
+  categoryIdRef.current = category.id;
+  const [autoNightMode, setAutoNightMode] = useState(
+    () => localStorage.getItem(AUTO_NIGHT_MODE_KEY) === "true"
+  );
+  const [nightStart, setNightStart] = useState(
+    () => localStorage.getItem(NIGHT_START_KEY) ?? "18:00"
+  );
+  const [nightEnd, setNightEnd] = useState(() => localStorage.getItem(NIGHT_END_KEY) ?? "06:00");
 
   const handleSheetHeightChange = useCallback((h: number) => {
     setSheetHeight(h);
@@ -303,6 +426,19 @@ export function MapView() {
   const handleTrashRetentionChange = useCallback((days: number) => {
     setTrashRetentionDays(days);
     localStorage.setItem(TRASH_RETENTION_KEY, String(days));
+  }, []);
+
+  const handleAutoNightModeChange = useCallback((v: boolean) => {
+    setAutoNightMode(v);
+    localStorage.setItem(AUTO_NIGHT_MODE_KEY, String(v));
+  }, []);
+  const handleNightStartChange = useCallback((v: string) => {
+    setNightStart(v);
+    localStorage.setItem(NIGHT_START_KEY, v);
+  }, []);
+  const handleNightEndChange = useCallback((v: string) => {
+    setNightEnd(v);
+    localStorage.setItem(NIGHT_END_KEY, v);
   }, []);
 
   const handleSortOrderChange = useCallback((order: SortOrder) => {
@@ -354,12 +490,39 @@ export function MapView() {
     }
   }, []);
 
+  const applyPoiFilter = useCallback((categoryId: string) => {
+    const all = allPoiFeaturesRef.current ?? [];
+    setPoiFeatures(all.filter((f) => f.properties?.categoryId === categoryId));
+  }, []);
+
+  const loadPoiForPin = useCallback(
+    async (lng: number, lat: number) => {
+      const { x, y } = lngLatToTile(lng, lat, 8);
+      const key = `${x}:${y}`;
+      if (loadedTilesRef.current.has(key)) return;
+      loadedTilesRef.current.add(key);
+      const features = await loadPoiTile(x, y, lng, lat);
+      if (features.length === 0) return;
+      allPoiFeaturesRef.current = [...(allPoiFeaturesRef.current ?? []), ...features];
+      applyPoiFilter(categoryIdRef.current);
+    },
+    [applyPoiFilter]
+  );
+
   const handleMapClick = useCallback(
     async (lng: number, lat: number) => {
-      const pin = await addPin(repo, { lng, lat }, `ピン ${pins.length + 1}`, category.id);
+      const map = mapRef.current;
+      const placeName = map ? getPlaceName(map, lng, lat) : null;
+      const title = placeName ?? `ピン ${pins.length + 1}`;
+      let pin = await addPin(repo, { lng, lat }, title, category.id);
+      if (placeName) {
+        pin = { ...pin, location: placeName };
+        await repo.save(pin);
+      }
       setPins((prev) => [...prev, pin]);
+      void loadPoiForPin(lng, lat);
     },
-    [pins.length, category]
+    [pins.length, category, loadPoiForPin]
   );
 
   const handlePhoto = useCallback(
@@ -413,6 +576,7 @@ export function MapView() {
           .sort((a, b) => a.dist - b.dist)
           .map(({ pin }) => pin);
 
+        const titleIsFile = !nearbyPins[0];
         const title = nearbyPins[0]?.title ?? file.name.replace(/\.[^.]+$/, "");
         const inheritedCategoryId = nearbyPins[0]?.categoryId ?? category.id;
 
@@ -422,6 +586,7 @@ export function MapView() {
           photoExif,
           fileInfo,
           title,
+          titleIsFile,
           categoryId: inheritedCategoryId,
           pinExif,
           initialCoordinates: { lng, lat },
@@ -479,11 +644,20 @@ export function MapView() {
     const marker = provisionalMarkerRef.current;
     if (!provisionalPinData || !marker) return;
     const { lng, lat } = marker.getLngLat();
-    const { blob, mimeType, photoExif, fileInfo, title, categoryId, pinExif } = provisionalPinData;
+    const { blob, mimeType, photoExif, fileInfo, title, titleIsFile, categoryId, pinExif } =
+      provisionalPinData;
+    const map = mapRef.current;
+    const placeName = map ? getPlaceName(map, lng, lat) : null;
+    const resolvedTitle = titleIsFile && placeName ? placeName : title;
     try {
-      const pin = await addPin(repo, { lng, lat }, title, categoryId, pinExif);
+      let pin = await addPin(repo, { lng, lat }, resolvedTitle, categoryId, pinExif);
+      if (placeName) {
+        pin = { ...pin, location: placeName };
+        await repo.save(pin);
+      }
       await dexiePhotoRepository.save(pin.id, blob, mimeType, photoExif, fileInfo);
       setPins((prev) => [...prev, pin]);
+      void loadPoiForPin(lng, lat);
       marker.remove();
       provisionalMarkerRef.current = null;
       setProvisionalPinData(null);
@@ -493,7 +667,7 @@ export function MapView() {
       console.error("ピンの保存中にエラーが発生しました:", err);
       showMessage("保存に失敗しました");
     }
-  }, [provisionalPinData, showMessage]);
+  }, [provisionalPinData, showMessage, loadPoiForPin]);
 
   const handleCancelProvisional = useCallback(() => {
     if (provisionalMarkerRef.current) {
@@ -536,6 +710,7 @@ export function MapView() {
     provisionalMarkerRef.current = marker;
     setProvisionalPinData(provisionalData);
     map.flyTo({ center: [lng, lat], zoom: 16, padding: { bottom: sheetHeight } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mergeProposalData, sheetHeight]);
 
   const handlePinFlyTo = useCallback(
@@ -640,11 +815,12 @@ export function MapView() {
         newPinExif
       );
       await dexiePhotoRepository.save(newPin.id, photo.blob, photo.mimeType, photo.exif);
+      void loadPoiForPin(sourcePin.coordinates.lng, sourcePin.coordinates.lat);
       await refreshLists();
       setSelectedPin(null);
       showMessage(`写真を新しいピンに分割しました`);
     },
-    [refreshLists, showMessage]
+    [refreshLists, showMessage, loadPoiForPin]
   );
 
   const handleMapClickWithDismiss = useCallback(
@@ -658,10 +834,16 @@ export function MapView() {
     [handleMapClick]
   );
 
+  const effectiveStyleUrl = getEffectiveStyleUrl(
+    category.styleUrl,
+    autoNightMode,
+    nightStart,
+    nightEnd
+  );
   const mapRef = useMap(
     containerRef,
     handleMapClickWithDismiss,
-    category.styleUrl,
+    effectiveStyleUrl,
     () => sheetHeight
   );
 
@@ -700,18 +882,31 @@ export function MapView() {
           setTimeout(tryPlot, 100);
           return;
         }
+        const attachPoiLayer = (m: maplibregl.Map) => {
+          setupPoiLayer(m);
+          m.on("styledata", () => {
+            setupPoiLayer(m);
+            (m.getSource("poi-data") as maplibregl.GeoJSONSource)?.setData({
+              type: "FeatureCollection",
+              features: poiFeaturesRef.current,
+            });
+          });
+        };
+
         if (!map.isStyleLoaded()) {
           map.once("load", () => {
             if (!cancelled) {
               syncMarkers(map, active);
               updateBounds(map);
               map.on("moveend", () => updateBounds(map));
+              attachPoiLayer(map);
             }
           });
         } else {
           syncMarkers(map, active);
           updateBounds(map);
           map.on("moveend", () => updateBounds(map));
+          attachPoiLayer(map);
         }
       };
       tryPlot();
@@ -734,6 +929,34 @@ export function MapView() {
     syncMarkers(map, pins);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pins, syncMarkers]);
+
+  // 選択ピンのマーカーを最前面に
+  useEffect(() => {
+    markersRef.current.forEach((m) => {
+      m.getElement().style.zIndex = "";
+    });
+    if (selectedPin) {
+      const m = markersRef.current.get(selectedPin.id);
+      if (m) m.getElement().style.zIndex = "1000";
+    }
+  }, [selectedPin]);
+
+  // カテゴリー変更時にPOIフィルターを再適用
+  useEffect(() => {
+    applyPoiFilter(category.id);
+  }, [category.id, applyPoiFilter]);
+
+  // poiFeatures 変化時にGeoJSONソースを更新
+  useEffect(() => {
+    poiFeaturesRef.current = poiFeatures;
+    const map = mapRef.current;
+    if (!map?.isStyleLoaded()) return;
+    (map.getSource("poi-data") as maplibregl.GeoJSONSource)?.setData({
+      type: "FeatureCollection",
+      features: poiFeatures,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poiFeatures]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -977,6 +1200,12 @@ export function MapView() {
           onSortOrderChange={handleSortOrderChange}
           listScope={listScope}
           onListScopeChange={handleListScopeChange}
+          autoNightMode={autoNightMode}
+          onAutoNightModeChange={handleAutoNightModeChange}
+          nightStart={nightStart}
+          onNightStartChange={handleNightStartChange}
+          nightEnd={nightEnd}
+          onNightEndChange={handleNightEndChange}
         />
       )}
       {message && (

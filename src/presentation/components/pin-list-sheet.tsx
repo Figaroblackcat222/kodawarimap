@@ -5,6 +5,12 @@ import type { PhotoRepository } from "@application/ports/photo-repository";
 import { PRESET_CATEGORIES } from "@domain/entities/category";
 import { useMediaQuery } from "@presentation/hooks/use-media-query";
 
+const REACTION_EMOJI_MAP: Record<string, string> = {
+  want_to_revisit: "😊",
+  once_was_enough: "😐",
+  never_again: "😩",
+};
+
 const MIN_HEIGHT = 44;
 const MAX_HEIGHT_RATIO = 0.8;
 
@@ -181,7 +187,9 @@ export function PinListSheet({
       result = result.filter((p) =>
         terms.every(
           (t) =>
-            p.title.toLowerCase().includes(t) || (p.comment?.toLowerCase().includes(t) ?? false)
+            p.title.toLowerCase().includes(t) ||
+            (p.comment?.toLowerCase().includes(t) ?? false) ||
+            (p.event?.toLowerCase().includes(t) ?? false)
         )
       );
     }
@@ -732,20 +740,45 @@ export function PinListSheet({
                         >
                           {pin.title}
                         </span>
-                      </div>
-                      <span style={{ fontSize: 12, color: "var(--text-muted)", paddingLeft: 14 }}>
-                        {(pin.exif?.takenAt ?? pin.createdAt).toLocaleString("ja-JP", {
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        {pin.exif?.takenAt && pin.exif.takenAtEstimated && "（推定）"}
-                        {showTrash && pin.deletedAt && (
-                          <> · 削除: {pin.deletedAt.toLocaleDateString("ja-JP")}</>
+                        {pin.reaction && (
+                          <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>
+                            {REACTION_EMOJI_MAP[pin.reaction]}
+                          </span>
                         )}
-                      </span>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          paddingLeft: 14,
+                        }}
+                      >
+                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                          {(pin.exif?.takenAt ?? pin.createdAt).toLocaleString("ja-JP", {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                          {pin.exif?.takenAt && pin.exif.takenAtEstimated && "（推定）"}
+                          {showTrash && pin.deletedAt && (
+                            <> · 削除: {pin.deletedAt.toLocaleDateString("ja-JP")}</>
+                          )}
+                        </span>
+                        {pin.event && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "var(--text-muted)",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {pin.event}
+                          </span>
+                        )}
+                      </div>
                       {pin.comment && (
                         <span
                           style={{

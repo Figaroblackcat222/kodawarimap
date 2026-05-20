@@ -1,6 +1,11 @@
 import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
+import { Protocol } from "pmtiles";
 import { DEFAULT_CATEGORY } from "@domain/entities/category";
+import { isProtomapsTheme, parseProtomapsTheme, getProtomapsStyle } from "./protomaps-style";
+
+const protocol = new Protocol();
+maplibregl.addProtocol("pmtiles", protocol.tile);
 
 const DEFAULT_CENTER: [number, number] = [139.6917, 35.6895]; // Tokyo
 const DEFAULT_ZOOM = 10;
@@ -16,9 +21,13 @@ export function useMap(
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
+    const resolvedStyle = isProtomapsTheme(styleUrl)
+      ? getProtomapsStyle(parseProtomapsTheme(styleUrl))
+      : styleUrl;
+
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: styleUrl,
+      style: resolvedStyle,
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     });
@@ -58,7 +67,10 @@ export function useMap(
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    map.setStyle(styleUrl);
+    const resolvedStyle = isProtomapsTheme(styleUrl)
+      ? getProtomapsStyle(parseProtomapsTheme(styleUrl))
+      : styleUrl;
+    map.setStyle(resolvedStyle);
   }, [styleUrl]);
 
   return mapRef;
