@@ -66,7 +66,7 @@ src/
 │   │   └── protomaps-style.ts     # Protomapsスタイル生成（light/dark/grayscaleテーマ・日本語ラベル・R2 PMTilesソース）
 │   ├── poi/
 │   │   ├── r2-poi-client.ts       # R2から poi/z8/{x}/{y}.geojson を取得（404は null で返す）
-│   │   ├── overpass-client.ts     # Overpass API呼び出し・OSMタグ→categoryIdマッピング・GeoJSON変換
+│   │   ├── overpass-client.ts     # Overpass API呼び出し・名前付きPOIのみ取得・OSMタグ→categoryIdマッピング（12カテゴリー）・GeoJSON変換
 │   │   ├── poi-loader.ts          # ローカルキャッシュ→R2タイル→Overpassの優先順で取得（z8タイル単位でlocalStorageキャッシュ）
 │   │   └── tile-utils.ts          # lngLatToTile / tileToBbox（z8タイル座標計算ユーティリティ）
 │   └── cache/                     # TileCacheAdapter（未実装）
@@ -80,6 +80,13 @@ src/
     │   ├── cluster-sheet.tsx       # 同座標ピン一覧シート（クラスターマーカークリック時）
     │   ├── current-location-button.tsx # 現在地flyToボタン
     │   └── settings-sheet.tsx      # 設定画面（地図情報更新（POIキャッシュclr+SW更新チェック）・エクスポート・インポート・Overpass POIをR2タイル形式でZIPエクスポート（poi-tiles.zip・ピンのz8タイル単位でOverpass APIを呼び出し・進捗表示付き）・ゴミ箱保持期間・ソート順・表示範囲・昼夜自動テーマ切り替えトグル＋夜間時刻設定）
+```
+
+```
+scripts/
+├── build-poi-tiles-local.mjs  # ローカルOSM PBFからPOI z8タイルを一括生成（osmium-tool使用・Overpass API不使用・全12カテゴリー・日本全国を数分で処理）
+│                              # 使い方: brew install osmium-tool → curl -L -o japan-latest.osm.pbf https://download.geofabrik.de/asia/japan-latest.osm.pbf → node scripts/build-poi-tiles-local.mjs
+└── fetch-poi-tiles.mjs        # Overpass APIからz8タイル単位でPOIを取得（カテゴリー別クエリ・overpass.private.coffee・--countフラグ対応・504時はbbox4分割でリトライ）
     └── hooks/                      # カスタムフック（useMediaQuery）
 ```
 

@@ -54,6 +54,13 @@ export const PRESET_CATEGORIES: Category[] = [
     styleUrl: "protomaps:grayscale",
     markerColor: "#14b8a6",
   },
+  {
+    id: "shopping",
+    name: "ショッピング",
+    emoji: "🛍️",
+    styleUrl: "protomaps:light",
+    markerColor: "#d946ef",
+  },
 ];
 
 export const DEFAULT_CATEGORY = PRESET_CATEGORIES[0];

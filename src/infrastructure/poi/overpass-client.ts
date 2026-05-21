@@ -26,19 +26,9 @@ function resolveCategoryId(tags: Record<string, string>): string {
   if (tags["tourism"] === "camp_site") return "camping";
   if (tags["amenity"] === "bath_house" || tags["natural"] === "hot_spring") return "onsen";
   if (tags["natural"] === "beach" || tags["leisure"] === "beach_resort") return "beach";
-  if (tags["leisure"] === "park" || tags["leisure"] === "nature_reserve") return "nature";
-  if (
-    tags["amenity"] === "restaurant" ||
-    tags["amenity"] === "cafe" ||
-    tags["amenity"] === "fast_food"
-  )
-    return "food";
-  if (
-    tags["tourism"] === "museum" ||
-    tags["tourism"] === "hotel" ||
-    tags["tourism"] === "guest_house"
-  )
-    return "travel";
+  if (tags["leisure"] === "nature_reserve") return "nature";
+  if (tags["shop"] === "department_store" || tags["shop"] === "mall") return "shopping";
+  if (tags["tourism"] === "museum") return "travel";
   if (tags["leisure"] === "fishing") return "fishing";
   if (tags["tourism"] === "attraction") return "travel";
   if ("historic" in tags) return "general";
@@ -49,29 +39,24 @@ export async function fetchPoiFromOverpass(bbox: Bbox): Promise<FeatureCollectio
   const { south: S, west: W, north: N, east: E } = bbox;
   const query = `[out:json][timeout:60];
 (
-  node["tourism"="attraction"](${S},${W},${N},${E});
-  node["historic"](${S},${W},${N},${E});
-  node["amenity"="restaurant"](${S},${W},${N},${E});
-  node["amenity"="cafe"](${S},${W},${N},${E});
-  node["amenity"="fast_food"](${S},${W},${N},${E});
-  node["natural"="peak"](${S},${W},${N},${E});
-  node["tourism"="viewpoint"](${S},${W},${N},${E});
-  node["tourism"="alpine_hut"](${S},${W},${N},${E});
-  node["leisure"="fishing"](${S},${W},${N},${E});
-  node["tourism"="museum"](${S},${W},${N},${E});
-  node["tourism"="hotel"](${S},${W},${N},${E});
-  node["tourism"="guest_house"](${S},${W},${N},${E});
-  node["tourism"="theme_park"](${S},${W},${N},${E});
-  node["leisure"="water_park"](${S},${W},${N},${E});
-  node["amenity"="place_of_worship"]["religion"="shinto"](${S},${W},${N},${E});
-  node["amenity"="place_of_worship"]["religion"="buddhist"](${S},${W},${N},${E});
-  node["tourism"="camp_site"](${S},${W},${N},${E});
-  node["amenity"="bath_house"](${S},${W},${N},${E});
-  node["natural"="hot_spring"](${S},${W},${N},${E});
-  node["natural"="beach"](${S},${W},${N},${E});
-  node["leisure"="beach_resort"](${S},${W},${N},${E});
-  node["leisure"="park"](${S},${W},${N},${E});
-  node["leisure"="nature_reserve"](${S},${W},${N},${E});
+  node["tourism"="attraction"]["name"](${S},${W},${N},${E});
+  node["historic"~"castle|ruins|archaeological_site"]["name"](${S},${W},${N},${E});
+  node["natural"="peak"]["name"](${S},${W},${N},${E});
+  node["tourism"="viewpoint"]["name"](${S},${W},${N},${E});
+  node["tourism"="alpine_hut"]["name"](${S},${W},${N},${E});
+  node["leisure"="fishing"]["name"](${S},${W},${N},${E});
+  node["tourism"="museum"]["name"](${S},${W},${N},${E});
+  node["tourism"="theme_park"]["name"](${S},${W},${N},${E});
+  node["leisure"="water_park"]["name"](${S},${W},${N},${E});
+  node["amenity"="place_of_worship"]["religion"="shinto"]["name"](${S},${W},${N},${E});
+  node["amenity"="place_of_worship"]["religion"="buddhist"]["name"](${S},${W},${N},${E});
+  node["tourism"="camp_site"]["name"](${S},${W},${N},${E});
+  node["amenity"="bath_house"]["name"](${S},${W},${N},${E});
+  node["natural"="hot_spring"]["name"](${S},${W},${N},${E});
+  node["natural"="beach"]["name"](${S},${W},${N},${E});
+  node["leisure"="beach_resort"]["name"](${S},${W},${N},${E});
+  node["leisure"="nature_reserve"]["name"](${S},${W},${N},${E});
+  node["shop"~"department_store|mall"]["name"](${S},${W},${N},${E});
 );
 out body;`;
 

@@ -63,6 +63,7 @@ const CATEGORY_MERGE_RADIUS: Record<string, number> = {
   onsen: 30,
   beach: 50,
   nature: 50,
+  shopping: 30,
 };
 
 function getMergeRadius(categoryId: string): number {
