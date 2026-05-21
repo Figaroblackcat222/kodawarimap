@@ -72,11 +72,11 @@ src/
 │   └── cache/                     # TileCacheAdapter（未実装）
 └── presentation/                  # React コンポーネント / hooks
     ├── components/
-    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・reactionバッジ（白丸中央配置）・リッチツールチップ遅延サムネイル（写真2枚以上で枚数バッジ）・ピン作成時z8タイルPOI取得・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin変化時に対応マーカーをz-index:1000で最前面表示）
+    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・カテゴリー絵文字バッジ（白丸中央配置・font-size:22px・全ピン常時表示）・リッチツールチップ遅延サムネイル（写真2枚以上で枚数バッジ）・POI取得中インジケーター（地図左下スピナー付きpill）・POI起動時ロード（loadPoiForStartup: loadedTilesRefを汚染しない専用関数・既存ピンのz8タイルをバックグラウンド取得）・ピン作成時z8タイルPOI取得（loadPoiForPin: loadedTilesRef+fetchedTilesRefで二重取得防止）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin変化時に対応マーカーをz-index:1000で最前面表示・eventKeywordsをuseMemoで全ピンから集計しPinListSheet/PinDetailSheetに渡す）
     │   ├── photo-upload-button.tsx # 写真追加ボタン（スマホ・PCともに「写真から記録」テキスト常時表示）
-    │   ├── category-selector.tsx   # カテゴリー選択ピル（地図スタイル切替・固定白背景）
-    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・reactionフィルター・ゴミ箱・ダークモード対応・タイトル行にreaction絵文字インライン表示・撮影日時右隣にevent表示・キーワード検索がevent対象・ピン選択で対応マーカーを最前面）
-    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所フィールド・ダウンロード許可トグル・写真一括追加・撮影日時左寄せ（columnレイアウト）・イベント入力欄（コメント下）・カテゴリー→評価→補足情報の順）
+    │   ├── category-selector.tsx   # カテゴリー選択ピル（地図スタイル切替・固定白背景・タップで2列グリッド展開・選択後に縮小・カテゴリー追加時は行が自動増加）
+    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・カテゴリー/reaction/イベントフィルター・フィルターpillsはflexWrap折り返し表示・イベントフィルターはマルチセレクトドロップダウン+タグ表示（外クリック閉じ）・フィルター展開時にシート自動最大化・フィルター適用中はFilterXアイコンをフィルターボタン左隣に表示・ゴミ箱・ダークモード対応・タイトル行にreaction絵文字インライン表示・撮影日時右隣にevent表示・キーワード検索がevent対象・ピン選択で対応マーカーを最前面）
+    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所フィールド・ダウンロード許可トグル・写真一括追加・撮影日時左寄せ（columnレイアウト）・イベント入力欄（コメント下）にドロップダウンサジェスト（フォーカス/入力でインクリメンタル絞り込み・過去イベントを再利用）・カテゴリー→評価→補足情報の順）
     │   ├── cluster-sheet.tsx       # 同座標ピン一覧シート（クラスターマーカークリック時）
     │   ├── current-location-button.tsx # 現在地flyToボタン
     │   └── settings-sheet.tsx      # 設定画面（地図情報更新（POIキャッシュclr+SW更新チェック）・エクスポート・インポート・Overpass POIをR2タイル形式でZIPエクスポート（poi-tiles.zip・ピンのz8タイル単位でOverpass APIを呼び出し・進捗表示付き）・ゴミ箱保持期間・ソート順・表示範囲・昼夜自動テーマ切り替えトグル＋夜間時刻設定）

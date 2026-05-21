@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { SlidersHorizontal, Trash2, X, ChevronDown, ChevronUp, List } from "lucide-react";
+import { SlidersHorizontal, Trash2, X, ChevronDown, ChevronUp, List, FilterX } from "lucide-react";
 import type { Pin, PinReaction } from "@domain/entities/pin";
 import type { PhotoRepository } from "@application/ports/photo-repository";
 import { PRESET_CATEGORIES } from "@domain/entities/category";
@@ -40,6 +40,7 @@ interface Props {
   sortOrder: "date" | "title";
   listScope: "all" | "visible";
   mapBounds: MapBounds | null;
+  eventKeywords: string[];
 }
 
 function applyDatePreset(
@@ -118,6 +119,7 @@ export function PinListSheet({
   sortOrder,
   listScope,
   mapBounds,
+  eventKeywords,
 }: Props) {
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [keyword, setKeyword] = useState("");
@@ -127,6 +129,9 @@ export function PinListSheet({
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [takenFrom, setTakenFrom] = useState("");
   const [takenTo, setTakenTo] = useState("");
+  const [eventFilter, setEventFilter] = useState<string[]>([]);
+  const [eventDropdownOpen, setEventDropdownOpen] = useState(false);
+  const eventDropdownRef = useRef<HTMLDivElement>(null);
 
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
@@ -171,6 +176,23 @@ export function PinListSheet({
     [sheetHeight, onSheetHeightChange]
   );
 
+  useEffect(() => {
+    if (isFilterOpen) {
+      onSheetHeightChange(Math.round(window.innerHeight * MAX_HEIGHT_RATIO));
+    }
+  }, [isFilterOpen, onSheetHeightChange]);
+
+  useEffect(() => {
+    if (!eventDropdownOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (eventDropdownRef.current && !eventDropdownRef.current.contains(e.target as Node)) {
+        setEventDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [eventDropdownOpen]);
+
   const activePins = useMemo(() => {
     let result = pins;
     if (listScope === "visible" && mapBounds) {
@@ -203,6 +225,9 @@ export function PinListSheet({
         result = result.filter((p) => p.reaction === reactionFilter);
       }
     }
+    if (eventFilter.length > 0) {
+      result = result.filter((p) => p.event && eventFilter.includes(p.event));
+    }
     if (takenFrom || takenTo) {
       const from = takenFrom ? new Date(takenFrom) : null;
       const to = takenTo ? new Date(takenTo + "T23:59:59") : null;
@@ -229,6 +254,7 @@ export function PinListSheet({
     keyword,
     categoryFilter,
     reactionFilter,
+    eventFilter,
     takenFrom,
     takenTo,
     sortOrder,
@@ -413,6 +439,35 @@ export function PinListSheet({
                     </button>
                   )}
                 </div>
+                {(categoryFilter !== "all" ||
+                  reactionFilter !== "all" ||
+                  eventFilter.length > 0 ||
+                  takenFrom ||
+                  takenTo) && (
+                  <button
+                    onClick={() => {
+                      setCategoryFilter("all");
+                      setReactionFilter("all");
+                      setEventFilter([]);
+                      setTakenFrom("");
+                      setTakenTo("");
+                    }}
+                    title="フィルターをリセット"
+                    style={{
+                      flexShrink: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "8px 10px",
+                      border: "1.5px solid #ef4444",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      background: "none",
+                      color: "#ef4444",
+                    }}
+                  >
+                    <FilterX size={15} />
+                  </button>
+                )}
                 <button
                   onClick={() => setIsFilterOpen((v) => !v)}
                   style={{
@@ -451,10 +506,9 @@ export function PinListSheet({
               <div
                 style={{
                   display: "flex",
+                  flexWrap: "wrap",
                   gap: 6,
                   marginBottom: 8,
-                  overflowX: "auto",
-                  paddingBottom: 2,
                 }}
               >
                 <FilterPill
@@ -478,10 +532,9 @@ export function PinListSheet({
               <div
                 style={{
                   display: "flex",
+                  flexWrap: "wrap",
                   gap: 6,
                   marginBottom: 8,
-                  overflowX: "auto",
-                  paddingBottom: 2,
                 }}
               >
                 <FilterPill
@@ -515,6 +568,115 @@ export function PinListSheet({
                   onClick={() => setReactionFilter("none")}
                 />
               </div>
+
+              {/* イベントフィルター */}
+              {eventKeywords.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div
+                    ref={eventDropdownRef}
+                    style={{ position: "relative", display: "inline-block" }}
+                  >
+                    <button
+                      onClick={() => setEventDropdownOpen((v) => !v)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 12,
+                        border: "1.5px solid var(--border)",
+                        background:
+                          eventFilter.length > 0 ? "var(--text-primary)" : "var(--bg-primary)",
+                        color:
+                          eventFilter.length > 0 ? "var(--bg-primary)" : "var(--text-secondary)",
+                        fontSize: 12,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      イベント{eventFilter.length > 0 && ` (${eventFilter.length})`}
+                    </button>
+                    {eventDropdownOpen && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "100%",
+                          left: 0,
+                          zIndex: 100,
+                          minWidth: 160,
+                          background: "var(--bg-primary)",
+                          border: "1.5px solid var(--border)",
+                          borderRadius: 8,
+                          maxHeight: 200,
+                          overflowY: "auto",
+                          boxShadow: "0 4px 12px rgba(0,0,0,.15)",
+                          marginTop: 4,
+                        }}
+                      >
+                        {eventKeywords.map((kw) => (
+                          <div
+                            key={kw}
+                            onMouseDown={() =>
+                              setEventFilter((f) =>
+                                f.includes(kw) ? f.filter((x) => x !== kw) : [...f, kw]
+                              )
+                            }
+                            style={{
+                              padding: "10px 12px",
+                              cursor: "pointer",
+                              fontSize: 14,
+                              color: "var(--text-primary)",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              background: eventFilter.includes(kw)
+                                ? "var(--bg-secondary)"
+                                : "transparent",
+                            }}
+                          >
+                            <span style={{ fontSize: 15 }}>
+                              {eventFilter.includes(kw) ? "☑" : "☐"}
+                            </span>
+                            {kw}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {eventFilter.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                      {eventFilter.map((ev) => (
+                        <span
+                          key={ev}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            background: "var(--text-primary)",
+                            color: "var(--bg-primary)",
+                            borderRadius: 12,
+                            padding: "2px 8px",
+                            fontSize: 12,
+                          }}
+                        >
+                          {ev}
+                          <button
+                            onMouseDown={() => setEventFilter((f) => f.filter((x) => x !== ev))}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "inherit",
+                              cursor: "pointer",
+                              padding: 0,
+                              lineHeight: 1,
+                              fontSize: 14,
+                            }}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* 撮影日プリセット */}
               <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
@@ -604,31 +766,6 @@ export function PinListSheet({
                   </button>
                 )}
               </div>
-
-              {/* フィルターリセット */}
-              {(categoryFilter !== "all" || reactionFilter !== "all" || takenFrom || takenTo) && (
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
-                  <button
-                    onClick={() => {
-                      setCategoryFilter("all");
-                      setReactionFilter("all");
-                      setTakenFrom("");
-                      setTakenTo("");
-                    }}
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-muted)",
-                      background: "none",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      padding: "4px 10px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    フィルターをリセット
-                  </button>
-                </div>
-              )}
             </div>
           )}
 

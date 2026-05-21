@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Feature } from "geojson";
@@ -107,12 +107,6 @@ function distanceMeters(a: { lng: number; lat: number }, b: { lng: number; lat: 
   const x = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
-
-const REACTION_EMOJI_MAP: Record<string, string> = {
-  want_to_revisit: "😊",
-  once_was_enough: "😐",
-  never_again: "😩",
-};
 
 const REACTION_LABEL_MAP: Record<string, string> = {
   want_to_revisit: "😊 また行きたい",
@@ -242,14 +236,12 @@ function createMarker(
   const el = marker.getElement();
   el.style.cursor = "pointer";
 
-  if (pin.reaction) {
-    const badge = document.createElement("div");
-    badge.textContent = REACTION_EMOJI_MAP[pin.reaction] ?? "";
-    badge.style.cssText =
-      "position:absolute;top:13.5px;left:13.5px;transform:translate(-50%,-50%);font-size:10px;line-height:1;pointer-events:none;user-select:none";
-    el.style.overflow = "visible";
-    el.appendChild(badge);
-  }
+  const badge = document.createElement("div");
+  badge.textContent = CATEGORY_EMOJI[pin.categoryId ?? "general"] ?? "🗺️";
+  badge.style.cssText =
+    "position:absolute;top:13.5px;left:13.5px;transform:translate(-50%,-50%);font-size:22px;line-height:1;pointer-events:none;user-select:none";
+  el.style.overflow = "visible";
+  el.appendChild(badge);
 
   let lpTimer: ReturnType<typeof setTimeout> | null = null;
   let didLongPress = false;
@@ -405,11 +397,17 @@ export function MapView() {
   );
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const allPoiFeaturesRef = useRef<Feature[] | null>(null);
+  // ユーザーがピンを置いた際のセッション内重複排除（起動時ロードとは独立）
   const loadedTilesRef = useRef<Set<string>>(new Set());
+  // 成功取得済みタイル（起動時・ユーザー操作を問わず重複追加を防ぐ）
+  const fetchedTilesRef = useRef<Set<string>>(new Set());
   const [poiFeatures, setPoiFeatures] = useState<Feature[]>([]);
   const poiFeaturesRef = useRef<Feature[]>([]);
+  const [poiLoadingCount, setPoiLoadingCount] = useState(0);
   const categoryIdRef = useRef(category.id);
   categoryIdRef.current = category.id;
+  // 起動時ロード用 ref（loadedTilesRef を汚染しない専用関数）
+  const loadPoiForStartupRef = useRef<(lng: number, lat: number) => Promise<void>>(async () => {});
   const [autoNightMode, setAutoNightMode] = useState(
     () => localStorage.getItem(AUTO_NIGHT_MODE_KEY) === "true"
   );
@@ -417,6 +415,14 @@ export function MapView() {
     () => localStorage.getItem(NIGHT_START_KEY) ?? "18:00"
   );
   const [nightEnd, setNightEnd] = useState(() => localStorage.getItem(NIGHT_END_KEY) ?? "06:00");
+
+  const eventKeywords = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of pins) {
+      if (p.event?.trim()) set.add(p.event.trim());
+    }
+    return [...set].sort();
+  }, [pins]);
 
   const handleSheetHeightChange = useCallback((h: number) => {
     setSheetHeight(h);
@@ -495,19 +501,52 @@ export function MapView() {
     setPoiFeatures(all.filter((f) => f.properties?.categoryId === categoryId));
   }, []);
 
+  // ユーザーがピンを置いたとき呼ぶ（loadedTilesRef でセッション内重複排除）
   const loadPoiForPin = useCallback(
     async (lng: number, lat: number) => {
       const { x, y } = lngLatToTile(lng, lat, 8);
       const key = `${x}:${y}`;
       if (loadedTilesRef.current.has(key)) return;
       loadedTilesRef.current.add(key);
-      const features = await loadPoiTile(x, y, lng, lat);
-      if (features.length === 0) return;
-      allPoiFeaturesRef.current = [...(allPoiFeaturesRef.current ?? []), ...features];
-      applyPoiFilter(categoryIdRef.current);
+      // 起動時ロードで既に成功取得済みなら追加不要
+      if (fetchedTilesRef.current.has(key)) return;
+      setPoiLoadingCount((c) => c + 1);
+      try {
+        const features = await loadPoiTile(x, y, lng, lat);
+        if (features.length === 0) {
+          loadedTilesRef.current.delete(key);
+          return;
+        }
+        fetchedTilesRef.current.add(key);
+        allPoiFeaturesRef.current = [...(allPoiFeaturesRef.current ?? []), ...features];
+        applyPoiFilter(categoryIdRef.current);
+      } finally {
+        setPoiLoadingCount((c) => c - 1);
+      }
     },
     [applyPoiFilter]
   );
+
+  // 起動時専用ローダー（loadedTilesRef を書かないのでユーザー操作を妨げない）
+  const loadPoiForStartup = useCallback(
+    async (lng: number, lat: number) => {
+      const { x, y } = lngLatToTile(lng, lat, 8);
+      const key = `${x}:${y}`;
+      if (fetchedTilesRef.current.has(key)) return;
+      setPoiLoadingCount((c) => c + 1);
+      try {
+        const features = await loadPoiTile(x, y, lng, lat);
+        if (features.length === 0) return;
+        fetchedTilesRef.current.add(key);
+        allPoiFeaturesRef.current = [...(allPoiFeaturesRef.current ?? []), ...features];
+        applyPoiFilter(categoryIdRef.current);
+      } finally {
+        setPoiLoadingCount((c) => c - 1);
+      }
+    },
+    [applyPoiFilter]
+  );
+  loadPoiForStartupRef.current = loadPoiForStartup;
 
   const handleMapClick = useCallback(
     async (lng: number, lat: number) => {
@@ -865,6 +904,18 @@ export function MapView() {
       setPins(active);
       setDeletedPins(deleted);
 
+      // 起動時：既存ピンのPOIをバックグラウンドでロード
+      // loadedTilesRef は汚染しない専用ローダーを使い、ユーザーの新規ピン操作を妨げない
+      const startupSeenTiles = new Set<string>();
+      for (const pin of active) {
+        const { x, y } = lngLatToTile(pin.coordinates.lng, pin.coordinates.lat, 8);
+        const tileKey = `${x}:${y}`;
+        if (!startupSeenTiles.has(tileKey)) {
+          startupSeenTiles.add(tileKey);
+          void loadPoiForStartupRef.current(pin.coordinates.lng, pin.coordinates.lat);
+        }
+      }
+
       const updateBounds = (map: maplibregl.Map) => {
         const b = map.getBounds();
         setMapBounds({
@@ -1006,6 +1057,7 @@ export function MapView() {
         sortOrder={sortOrder}
         listScope={listScope}
         mapBounds={mapBounds}
+        eventKeywords={eventKeywords}
       />
       {longPressPin && (
         <div
@@ -1175,6 +1227,7 @@ export function MapView() {
           onFlyTo={handlePinFlyTo}
           onSplitPhoto={(photo) => handleSplitPhoto(photo, selectedPin)}
           sheetHeight={sheetHeight}
+          eventKeywords={eventKeywords}
         />
       )}
       {clusterPins && (
@@ -1207,6 +1260,37 @@ export function MapView() {
           nightEnd={nightEnd}
           onNightEndChange={handleNightEndChange}
         />
+      )}
+      {poiLoadingCount > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 64,
+            left: 12,
+            background: "rgba(0,0,0,0.6)",
+            color: "#fff",
+            padding: "5px 10px",
+            borderRadius: 12,
+            fontSize: 12,
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              border: "2px solid rgba(255,255,255,0.4)",
+              borderTopColor: "#fff",
+              display: "inline-block",
+              animation: "spin 0.8s linear infinite",
+            }}
+          />
+          POI読み込み中…
+        </div>
       )}
       {message && (
         <div

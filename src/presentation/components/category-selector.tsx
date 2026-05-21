@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { PRESET_CATEGORIES, type Category } from "@domain/entities/category";
-import { useMediaQuery } from "@presentation/hooks/use-media-query";
 
 interface Props {
   selected: Category;
@@ -9,7 +8,6 @@ interface Props {
 }
 
 export function CategorySelector({ selected, onChange, bottom }: Props) {
-  const isDesktop = useMediaQuery("(min-width: 768px)");
   const [isOpen, setIsOpen] = useState(false);
 
   const handleSelect = (cat: Category) => {
@@ -24,40 +22,45 @@ export function CategorySelector({ selected, onChange, bottom }: Props) {
         bottom,
         left: "50%",
         transform: "translateX(-50%)",
-        display: "flex",
-        gap: 8,
         background: "rgba(255, 255, 255, 0.95)",
         backdropFilter: "blur(8px)",
-        borderRadius: 24,
-        padding: "6px 10px",
+        borderRadius: isOpen ? 16 : 24,
+        padding: isOpen ? "10px" : "6px 10px",
         boxShadow: "0 2px 12px rgba(0, 0, 0, 0.15)",
         zIndex: 10,
         transition: "all 0.2s ease",
-        overflow: "hidden",
       }}
     >
       {isOpen ? (
-        PRESET_CATEGORIES.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => handleSelect(cat)}
-            style={{
-              border: "none",
-              borderRadius: 18,
-              padding: "6px 14px",
-              fontSize: 13,
-              cursor: "pointer",
-              fontWeight: selected.id === cat.id ? 700 : 400,
-              background: selected.id === cat.id ? cat.markerColor : "transparent",
-              color: selected.id === cat.id ? "#fff" : "#1a1a2e",
-              transition: "all 0.15s",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {cat.emoji}
-            {isDesktop && ` ${cat.name}`}
-          </button>
-        ))
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 6,
+          }}
+        >
+          {PRESET_CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => handleSelect(cat)}
+              style={{
+                border: "none",
+                borderRadius: 12,
+                padding: "7px 12px",
+                fontSize: 13,
+                cursor: "pointer",
+                fontWeight: selected.id === cat.id ? 700 : 400,
+                background: selected.id === cat.id ? cat.markerColor : "rgba(0,0,0,0.05)",
+                color: selected.id === cat.id ? "#fff" : "#1a1a2e",
+                transition: "all 0.15s",
+                whiteSpace: "nowrap",
+                textAlign: "left",
+              }}
+            >
+              {cat.emoji} {cat.name}
+            </button>
+          ))}
+        </div>
       ) : (
         <button
           onClick={() => setIsOpen(true)}
@@ -71,10 +74,10 @@ export function CategorySelector({ selected, onChange, bottom }: Props) {
             background: selected.markerColor,
             color: "#fff",
             whiteSpace: "nowrap",
+            display: "block",
           }}
         >
-          {selected.emoji}
-          {isDesktop && ` ${selected.name}`}
+          {selected.emoji} {selected.name}
         </button>
       )}
     </div>

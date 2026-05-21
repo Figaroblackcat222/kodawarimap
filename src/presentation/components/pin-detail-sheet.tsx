@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   X,
@@ -26,6 +26,7 @@ interface Props {
   onFlyTo: (pin: Pin) => void;
   onSplitPhoto: (photo: Photo) => Promise<void>;
   sheetHeight: number;
+  eventKeywords: string[];
 }
 
 const REACTION_OPTIONS: {
@@ -63,7 +64,15 @@ function toDatetimeLocal(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSplitPhoto }: Props) {
+export function PinDetailSheet({
+  pin,
+  photoRepo,
+  onSave,
+  onClose,
+  onFlyTo,
+  onSplitPhoto,
+  eventKeywords,
+}: Props) {
   const [title, setTitle] = useState(pin.title);
   const [categoryId, setCategoryId] = useState(pin.categoryId ?? DEFAULT_CATEGORY.id);
   const [comment, setComment] = useState(pin.comment ?? "");
@@ -88,6 +97,14 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
   const lbScaleRef = useRef(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const swipeDragRef = useRef<{ startX: number } | null>(null);
+  const [eventDropdownOpen, setEventDropdownOpen] = useState(false);
+  const filteredEventKeywords = useMemo(
+    () =>
+      eventKeywords.filter(
+        (kw) => event.trim() === "" || kw.toLowerCase().includes(event.toLowerCase())
+      ),
+    [eventKeywords, event]
+  );
   const lbPointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchInitRef = useRef<{ dist: number; startScale: number } | null>(null);
 
@@ -564,22 +581,64 @@ export function PinDetailSheet({ pin, photoRepo, onSave, onClose, onFlyTo, onSpl
               >
                 イベント
               </label>
-              <input
-                value={event}
-                onChange={(e) => setEvent(e.target.value)}
-                placeholder="例：夏祭り、家族旅行、卒業式…"
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  border: "1.5px solid var(--border)",
-                  fontSize: 14,
-                  outline: "none",
-                  boxSizing: "border-box",
-                  background: "var(--input-bg)",
-                  color: "var(--text-primary)",
-                }}
-              />
+              <div style={{ position: "relative" }}>
+                <input
+                  value={event}
+                  onChange={(e) => {
+                    setEvent(e.target.value);
+                    setEventDropdownOpen(true);
+                  }}
+                  onFocus={() => setEventDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setEventDropdownOpen(false), 150)}
+                  placeholder="例：夏祭り、家族旅行、卒業式…"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: "1.5px solid var(--border)",
+                    fontSize: 14,
+                    outline: "none",
+                    boxSizing: "border-box",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+                {eventDropdownOpen && filteredEventKeywords.length > 0 && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "100%",
+                      left: 0,
+                      right: 0,
+                      zIndex: 100,
+                      background: "var(--bg-primary)",
+                      border: "1.5px solid var(--border)",
+                      borderRadius: 8,
+                      maxHeight: 180,
+                      overflowY: "auto",
+                      boxShadow: "0 4px 12px rgba(0,0,0,.15)",
+                    }}
+                  >
+                    {filteredEventKeywords.map((kw) => (
+                      <div
+                        key={kw}
+                        onMouseDown={() => {
+                          setEvent(kw);
+                          setEventDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: "10px 12px",
+                          cursor: "pointer",
+                          fontSize: 14,
+                          color: "var(--text-primary)",
+                        }}
+                      >
+                        {kw}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* カテゴリー選択 */}
