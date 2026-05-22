@@ -23,14 +23,14 @@
 ```
 src/
 ├── domain/
-│   ├── entities/        # Pin（+ PinExif + PinReaction）, Category, Photo
+│   ├── entities/        # Pin（+ PinExif + PinReaction + thumbnailPhotoId + tag）, Category, Photo（+ comment）
 │   └── value-objects/   # ExifData
 ├── application/
 │   ├── ports/           # PinRepository, PhotoRepository（restore含む）インターフェース
-│   └── use-cases/       # add-pin, update-pin（title/category/comment/url/videoUrl/exif/reaction/event/location）,
+│   └── use-cases/       # add-pin, update-pin（title/category/comment/url/videoUrl/exif/reaction/tag/location/thumbnailPhotoId）,
                          # soft-delete-pin, restore-pin, hard-delete-pin, add-photo, delete-photo
 ├── infrastructure/
-│   ├── persistence/     # db.ts（Dexie v4, schema v9: reaction・event・location追加）,
+│   ├── persistence/     # db.ts（Dexie v4, schema v10: event→tagリネーム・thumbnailPhotoId・photo.comment追加）,
                          # dexie-pin-repository.ts, dexie-photo-repository.ts（restore実装）
 │   ├── exif/            # exif-parser.ts（exifr: GPS・F値・SS・焦点距離・ISO）
 │   ├── image/           # normalize-photo.ts（heic-to: HEIC/HEIF → JPEG変換）,
@@ -43,11 +43,11 @@ src/
                          # tile-utils.ts（lngLatToTile / tileToBbox: z8タイル座標計算ユーティリティ）
 │   └── cache/           # TileCache（未実装・PMTiles移行後）
 └── presentation/
-    └── components/      # map-view（GPS仮置きモード・マージ確認・地図範囲追跡・カテゴリー絵文字バッジ（白丸中央配置 top:13.5px;left:13.5px・font-size:22px・全ピン常時表示）・リッチツールチップ（写真2枚以上で右下に枚数バッジ）・POI取得中インジケーター（地図左下スピナーpill）・起動時POIロード（loadPoiForStartup: loadedTilesRef非汚染）・ピン作成時POIロード（loadPoiForPin: loadedTilesRef+fetchedTilesRefで重複防止）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin変化時に対応マーカーをz-index:1000で最前面表示・eventKeywordsをuseMemoで集計してPinListSheet/PinDetailSheetに渡す含む）,
+    └── components/      # map-view（GPS仮置きモード・マージ確認・地図範囲追跡・カテゴリー絵文字バッジ（白丸中央配置 top:13.5px;left:13.5px・font-size:22px・全ピン常時表示）・リッチツールチップ（写真2枚以上で右下に枚数バッジ）・POI取得中インジケーター（地図左下スピナーpill）・起動時POIロード（loadPoiForStartup: loadedTilesRef非汚染）・ピン作成時POIロード（loadPoiForPin: loadedTilesRef+fetchedTilesRefで重複防止）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin選択中はマーカーをvisibility:hiddenで非表示（詳細シートとの重なり防止）・filteredPinIdsによる地図マーカーと一覧フィルターの同期・tagKeywordsをuseMemoで集計してPinListSheet/PinDetailSheetに渡す含む）,
                          # photo-upload-button（スマホ・PCともにテキスト常時表示）,
                          # category-selector（タップで2列グリッド展開・選択後に縮小・スマホ/PCともに絵文字＋名前表示・カテゴリー追加時は行が自動増加）,
-                         # pin-list-sheet（3段階スナップ44px/40%/80%・ピルハンドル中央・ソート・表示範囲・カテゴリー/reaction/イベントフィルター・フィルターpillsはflexWrap折り返し表示・イベントフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリックで閉じる）・フィルター展開時にシート自動最大化・フィルター適用中はFilterXアイコンボタンをフィルターボタン左隣に表示・タイトル行にreaction絵文字インライン表示・撮影日時右隣にevent表示・キーワード検索がevent対象・ピン選択で地図マーカー最前面含む）,
-                         # pin-detail-sheet（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所（location）フィールド・ダウンロード許可トグル・写真一括追加・関連動画リンク・撮影日時左寄せ（columnレイアウト）・イベント入力欄（コメント下）にドロップダウンサジェスト（過去イベントをインクリメンタル絞り込み）含む）,
+                         # pin-list-sheet（3段階スナップ44px/40%/80%・ピルハンドル中央・ソート・表示範囲・カテゴリー/reaction/タグフィルター・フィルターpillsはflexWrap折り返し表示・タグフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリックで閉じる）・フィルター展開時にシート自動最大化・フィルター適用中はFilterXアイコンボタンをフィルターボタン左隣に表示・タイトル行にreaction絵文字インライン表示・撮影日時右隣にtag表示・キーワード検索がtag対象・pin.thumbnailPhotoIdでサムネイル選択・onFilteredPinsChangeで地図マーカーフィルターと同期含む）,
+                         # pin-detail-sheet（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム（写真コメントをlightboxに表示）・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所（location）フィールド・ダウンロード許可トグル・写真一括追加・各写真に個別コメント入力・★/☆ボタンでサムネ選択（thumbnailPhotoId）・isDirtyによる保存ボタン活性化制御（isNew=trueは常時活性）・pendingAddIdsで閉じる時の未保存写真自動削除・マイタグ入力欄（コメント下）にドロップダウンサジェスト・フッター「閉じる」ボタン含む）,
                          # cluster-sheet, current-location-button, settings-sheet（地図情報更新（POIキャッシュclr+SW更新チェック）・ソート順・表示範囲設定・Overpass POI をR2タイル形式でZIPエクスポート（poi-tiles.zip・進捗表示付き）・昼夜自動テーマ切り替えトグル＋時刻設定含む）,
                          # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ）
 public/                      # PWA静的アセット（アイコン・favicon）

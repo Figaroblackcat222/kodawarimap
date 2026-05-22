@@ -17,7 +17,13 @@ export const PRESET_CATEGORIES: Category[] = [
     markerColor: "#22c55e",
   },
   { id: "fishing", name: "釣り", emoji: "🎣", styleUrl: "protomaps:light", markerColor: "#06b6d4" },
-  { id: "travel", name: "旅行", emoji: "🧳", styleUrl: "protomaps:light", markerColor: "#8b5cf6" },
+  {
+    id: "travel",
+    name: "旅行／観光",
+    emoji: "🧳",
+    styleUrl: "protomaps:light",
+    markerColor: "#8b5cf6",
+  },
   {
     id: "theme_park",
     name: "テーマパーク",

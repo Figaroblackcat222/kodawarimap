@@ -23,6 +23,7 @@ export interface Photo {
   blob: Blob;
   mimeType: string;
   createdAt: Date;
+  comment?: string;
   exif?: PhotoExif;
   fileInfo?: PhotoFileInfo;
 }

@@ -67,7 +67,7 @@ function resolveCategoryId(props) {
   if (props.leisure === "fishing") return "fishing";
   if (props.tourism === "attraction") return "travel";
   if (props.historic === "shrine" || props.historic === "temple") return "shrine_temple";
-  if ("historic" in props) return "general";
+  if ("historic" in props) return "travel";
   return null;
 }
 

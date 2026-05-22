@@ -5,13 +5,14 @@
   --text-primary: #1a1a2e;
   --text-secondary: #666666;
   --text-muted: #999999;
-  --border: #e8e8e8;
-  --border-light: #f0f0f0;
+  --border: #c8cce0;
+  --border-light: #e8eaf4;
   --shadow: rgba(0, 0, 0, 0.15);
   --shadow-strong: rgba(0, 0, 0, 0.25);
-  --input-bg: #ffffff;
+  --input-bg: #edf2ff;
   --pill-bg: #f0f0f0;
   --pill-text: #555555;
+  --btn-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.07);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,13 +23,24 @@
     --text-primary: #e8e8f0;
     --text-secondary: #a0a0b8;
     --text-muted: #6b6b85;
-    --border: #2d2d4a;
-    --border-light: #252540;
+    --border: #3e4268;
+    --border-light: #28284a;
     --shadow: rgba(0, 0, 0, 0.4);
     --shadow-strong: rgba(0, 0, 0, 0.6);
-    --input-bg: #1e1e3a;
+    --input-bg: #252545;
     --pill-bg: #252545;
     --pill-text: #c0c0d8;
+    --btn-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.07);
+  }
+}
+
+input[type="date"] {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  input[type="date"] {
+    color-scheme: dark;
   }
 }
 

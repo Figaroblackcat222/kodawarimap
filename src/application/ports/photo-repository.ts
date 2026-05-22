@@ -11,6 +11,7 @@ export interface PhotoRepository {
   ): Promise<Photo>;
   restore(photo: Photo): Promise<void>;
   findByPinId(pinId: PinId): Promise<Photo[]>;
+  updateComment(id: string, comment: string | undefined): Promise<void>;
   delete(id: string): Promise<void>;
   deleteByPinId(pinId: PinId): Promise<void>;
 }

@@ -24,13 +24,14 @@ export interface Pin {
   title: string;
   categoryId?: string;
   comment?: string;
-  event?: string;
+  tag?: string;
   location?: string;
   url?: string;
   videoUrl?: string;
   exif?: PinExif;
   allowPhotoDownload?: boolean;
   reaction?: PinReaction;
+  thumbnailPhotoId?: string;
   createdAt: Date;
   deletedAt?: Date;
 }

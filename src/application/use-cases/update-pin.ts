@@ -8,13 +8,14 @@ export async function updatePin(
     title?: string;
     categoryId?: string;
     comment?: string;
-    event?: string;
+    tag?: string;
     location?: string;
     url?: string;
     videoUrl?: string;
     exif?: PinExif;
     allowPhotoDownload?: boolean;
     reaction?: PinReaction;
+    thumbnailPhotoId?: string;
   }
 ): Promise<Pin> {
   const updated: Pin = { ...pin, ...changes };

@@ -7,7 +7,7 @@
 | 言語           | TypeScript                          | 全レイヤー                                                 |
 | フロントエンド | React + Vite（SPA / PWA）           | SSR不要のローカルファースト                                |
 | 地図エンジン   | MapLibre GL JS v5                   | ベクタータイル＋動的スタイル切替                           |
-| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv9）                                 |
+| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv10）                                |
 | オフライン     | Service Worker（vite-plugin-pwa）   | タイルキャッシュ／エリア保存                               |
 | バックエンド   | なし（MVPは100%クライアント）       | クラウド同期は将来                                         |
 | ベクタータイル | Protomaps PMTiles（自己ホスト）     | Cloudflare R2配信・`pmtiles` + `@protomaps/basemaps`で描画 |
@@ -26,7 +26,7 @@
 - **Cloudflare Pages + R2**: 地図は高帯域、R2はegress無料。Protomaps公式推奨構成。詳細は [ADR-004](architecture-decisions/ADR-004-hosting.md)
 - **Clean Architecture**: Exif解析・ピンライフサイクル・ゴミ箱・オフライン計算が純粋ロジック。将来の公開サーフェス分離が自然に実現。詳細は [ADR-005](architecture-decisions/ADR-005-clean-architecture.md)
 - **クラウド/公開のデータ戦略**: バックアップ＝メタ＋サムネ、公開＝別ストア。コストと核心価値（プライバシー）を両立。詳細は [ADR-006](architecture-decisions/ADR-006-cloud-data-strategy.md)
-- **GPSマッチング戦略**: 半径30m＋同日判定で「同じ場所・同じ体験」を自動判別。誤マージへの安全弁として写真分割機能を提供。詳細は [ADR-007](architecture-decisions/ADR-007-gps-matching-strategy.md)
+- **GPSマッチング戦略**: 半径30m＋同日判定で「同じ場所・同じ体験」を自動判別。詳細は [ADR-007](architecture-decisions/ADR-007-gps-matching-strategy.md)
 
 ## ディレクトリ構成（Clean Architecture）
 
@@ -34,9 +34,9 @@
 src/
 ├── domain/                        # 純粋TS、依存ゼロ
 │   ├── entities/
-│   │   ├── pin.ts                 # Pin, PinExif, Coordinates, createPin
+│   │   ├── pin.ts                 # Pin（+ thumbnailPhotoId・tag・reaction）, PinExif, Coordinates, createPin
 │   │   ├── category.ts            # Category, PRESET_CATEGORIES, DEFAULT_CATEGORY
-│   │   └── photo.ts               # Photo（id, pinId, blob, mimeType, createdAt）
+│   │   └── photo.ts               # Photo（id, pinId, blob, mimeType, comment, createdAt）
 │   └── value-objects/
 │       └── exif-data.ts           # ExifData（パーサーの出力型）
 ├── application/                   # Use Cases + ports（interface）
@@ -45,7 +45,7 @@ src/
 │   │   └── photo-repository.ts    # PhotoRepository インターフェース
 │   └── use-cases/
 │       ├── add-pin.ts             # ピン追加（Exif含む）
-│       ├── update-pin.ts          # タイトル・カテゴリー・コメント・URL・videoUrl・Exif・reaction・event・location更新
+│       ├── update-pin.ts          # タイトル・カテゴリー・コメント・URL・videoUrl・Exif・reaction・tag・location・thumbnailPhotoId更新
 │       ├── soft-delete-pin.ts     # 論理削除（ゴミ箱へ）
 │       ├── restore-pin.ts         # ゴミ箱から復元
 │       ├── hard-delete-pin.ts     # 物理削除（ゴミ箱内のピンを完全削除）
@@ -53,7 +53,7 @@ src/
 │       └── delete-photo.ts        # 写真を削除
 ├── infrastructure/                # port の実装（adapter）
 │   ├── persistence/
-│   │   ├── db.ts                  # KodawarimapDB（Dexie, v9スキーマ: pins + photos）
+│   │   ├── db.ts                  # KodawarimapDB（Dexie, v10スキーマ: pins + photos。event→tagリネーム・thumbnailPhotoId・photo.comment追加）
 │   │   ├── dexie-pin-repository.ts # PinRepository 実装
 │   │   └── dexie-photo-repository.ts # PhotoRepository 実装
 │   ├── exif/
@@ -72,11 +72,11 @@ src/
 │   └── cache/                     # TileCacheAdapter（未実装）
 └── presentation/                  # React コンポーネント / hooks
     ├── components/
-    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・カテゴリー絵文字バッジ（白丸中央配置・font-size:22px・全ピン常時表示）・リッチツールチップ遅延サムネイル（写真2枚以上で枚数バッジ）・POI取得中インジケーター（地図左下スピナー付きpill）・POI起動時ロード（loadPoiForStartup: loadedTilesRefを汚染しない専用関数・既存ピンのz8タイルをバックグラウンド取得）・ピン作成時z8タイルPOI取得（loadPoiForPin: loadedTilesRef+fetchedTilesRefで二重取得防止）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin変化時に対応マーカーをz-index:1000で最前面表示・eventKeywordsをuseMemoで全ピンから集計しPinListSheet/PinDetailSheetに渡す）
+    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・カテゴリー絵文字バッジ（白丸中央配置・font-size:22px・全ピン常時表示）・リッチツールチップ遅延サムネイル（写真2枚以上で枚数バッジ）・POI取得中インジケーター（地図左下スピナー付きpill）・POI起動時ロード（loadPoiForStartup: loadedTilesRefを汚染しない専用関数）・ピン作成時z8タイルPOI取得（loadPoiForPin: 二重取得防止）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin選択中はマーカーをvisibility:hiddenで非表示（詳細シートとの重なり防止）・filteredPinIdsによる地図マーカーと一覧フィルターの同期・tagKeywordsをuseMemoで集計しPinListSheet/PinDetailSheetに渡す）
     │   ├── photo-upload-button.tsx # 写真追加ボタン（スマホ・PCともに「写真から記録」テキスト常時表示）
     │   ├── category-selector.tsx   # カテゴリー選択ピル（地図スタイル切替・固定白背景・タップで2列グリッド展開・選択後に縮小・カテゴリー追加時は行が自動増加）
-    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・カテゴリー/reaction/イベントフィルター・フィルターpillsはflexWrap折り返し表示・イベントフィルターはマルチセレクトドロップダウン+タグ表示（外クリック閉じ）・フィルター展開時にシート自動最大化・フィルター適用中はFilterXアイコンをフィルターボタン左隣に表示・ゴミ箱・ダークモード対応・タイトル行にreaction絵文字インライン表示・撮影日時右隣にevent表示・キーワード検索がevent対象・ピン選択で対応マーカーを最前面）
-    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・写真分割・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所フィールド・ダウンロード許可トグル・写真一括追加・撮影日時左寄せ（columnレイアウト）・イベント入力欄（コメント下）にドロップダウンサジェスト（フォーカス/入力でインクリメンタル絞り込み・過去イベントを再利用）・カテゴリー→評価→補足情報の順）
+    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・カテゴリー/reaction/タグフィルター・フィルターpillsはflexWrap折り返し表示・タグフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリック閉じ）・フィルター展開時にシート自動最大化・フィルター適用中はFilterXアイコンをフィルターボタン左隣に表示・タイトル行にreaction絵文字インライン表示・撮影日時右隣にtag表示・キーワード検索がtag対象・pin.thumbnailPhotoIdでサムネイル選択・onFilteredPinsChangeで地図マーカーフィルターと同期）
+    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム（写真コメントをlightboxに表示）・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所フィールド・ダウンロード許可トグル・写真一括追加・各写真に個別コメント入力（photoRepo.updateComment）・★/☆ボタンでサムネ選択（thumbnailPhotoId）・isDirtyによる保存ボタン活性化制御（isNew=trueは常時活性）・pendingAddIdsで閉じる時の未保存写真自動削除・マイタグ入力欄（コメント下）にドロップダウンサジェスト・フッター「閉じる」ボタン）
     │   ├── cluster-sheet.tsx       # 同座標ピン一覧シート（クラスターマーカークリック時）
     │   ├── current-location-button.tsx # 現在地flyToボタン
     │   └── settings-sheet.tsx      # 設定画面（地図情報更新（POIキャッシュclr+SW更新チェック）・エクスポート・インポート・Overpass POIをR2タイル形式でZIPエクスポート（poi-tiles.zip・ピンのz8タイル単位でOverpass APIを呼び出し・進捗表示付き）・ゴミ箱保持期間・ソート順・表示範囲・昼夜自動テーマ切り替えトグル＋夜間時刻設定）
@@ -116,8 +116,9 @@ interface Pin {
     iso?: number; // ISO感度
   };
   reaction?: "want_to_revisit" | "once_was_enough" | "never_again"; // 自己評価リアクション（任意）
-  event?: string; // イベント名・行事など任意入力テキスト
+  tag?: string; // マイタグ（旅行名・行事名等の任意ラベル。v9の event からリネーム）
   location?: string; // 撮影場所（地名）。PMTilesのplacesレイヤーから自動取得・任意編集可
+  thumbnailPhotoId?: string; // 一覧サムネイルとして使う写真ID（未指定時は先頭写真）
   createdAt: Date;
   deletedAt?: Date; // ゴミ箱: 設定日時。undefined = アクティブ
 }
@@ -131,6 +132,7 @@ interface Photo {
   pinId: string; // 紐づく Pin の id
   blob: Blob; // 写真データ本体
   mimeType: string;
+  comment?: string; // 写真個別コメント（任意）
   createdAt: Date;
   exif?: {
     takenAt?: Date;
@@ -150,15 +152,15 @@ interface Photo {
 }
 ```
 
-### IndexedDB スキーマ（v9）
+### IndexedDB スキーマ（v10）
 
 **pins テーブル**  
 インデックス: `id, createdAt, deletedAt, categoryId`  
-フィールド: Exif全フィールド（フラット保存）＋ `comment` ＋ `url` ＋ `videoUrl` ＋ `takenAtEstimated` ＋ `reaction`（任意）＋ `event`（任意・イベント名）＋ `location`（任意・撮影場所地名）
+フィールド: Exif全フィールド（フラット保存）＋ `comment` ＋ `url` ＋ `videoUrl` ＋ `takenAtEstimated` ＋ `reaction`（任意）＋ `tag`（任意・マイタグ。v9の `event` からリネーム）＋ `location`（任意・撮影場所地名）＋ `thumbnailPhotoId`（任意・一覧サムネイル写真ID）
 
 **photos テーブル**  
 インデックス: `id, pinId, createdAt`  
-写真 Blob + Exifフィールド（`exifTakenAt`・`exifTakenAtEstimated` 等フラット）+ ファイル情報（`originalFileName` 等）を pinId で紐づけて保存。完全削除時は紐づく photos も一括削除。`restore()` メソッドで元の ID を保持したままインポート復元が可能。
+写真 Blob + Exifフィールド（`exifTakenAt`・`exifTakenAtEstimated` 等フラット）+ ファイル情報（`originalFileName` 等）+ `comment`（任意・写真個別コメント）を pinId で紐づけて保存。完全削除時は紐づく photos も一括削除。`restore()` メソッドで元の ID を保持したままインポート復元が可能。
 
 ### カテゴリープリセット
 
@@ -170,7 +172,7 @@ interface Photo {
 | food          | 食事         | 🍽️    | Protomaps light     | 5m      |
 | hiking        | 登山         | ⛰️    | Protomaps grayscale | 100m    |
 | fishing       | 釣り         | 🎣    | Protomaps light     | 30m     |
-| travel        | 旅行         | 🧳    | Protomaps light     | 50m     |
+| travel        | 旅行／観光   | 🧳    | Protomaps light     | 50m     |
 | theme_park    | テーマパーク | 🎡    | Protomaps light     | 50m     |
 | shrine_temple | 神社仏閣     | ⛩️    | Protomaps light     | 30m     |
 | camping       | キャンプ     | ⛺    | Protomaps grayscale | 100m    |
@@ -225,7 +227,9 @@ lightカテゴリーは「昼夜自動テーマ」ON・夜間時刻帯のとき 
 詳細シートで写真追加
   └─ normalizePhoto() → HEIC なら JPEG 変換（heic-to）
        └─ parseExif → photoExif / fileInfo 構築
-            └─ photoRepo.save(…, photoExif, fileInfo) → photos テーブルに Blob + Exif 保存 → サムネイル更新
+            └─ photoRepo.save(…, photoExif, fileInfo) → photos テーブルに Blob + Exif 保存 → pendingAddIds に追加 → isDirty = true
+                 ├─ 「保存」押下 → pendingAddIds クリア（写真はそのままDB保存）
+                 └─ 「閉じる」押下（未保存）→ pendingAddIds の写真を photoRepo.delete() で削除（ロールバック）
 
 詳細シートで写真を「✕」削除
   └─ pendingDeleteIds に追加（UI から即時非表示。DBは未削除）
@@ -246,9 +250,13 @@ lightカテゴリーは「昼夜自動テーマ」ON・夜間時刻帯のとき 
             ├─ iOS: navigator.share（Web Share API）
             └─ その他: <a download> フォールバック
 
-詳細シートで写真を「分割」
-  └─ photoRepo.delete(photo.id) → addPin()（同座標・タイトル継承）
-       └─ photoRepo.save(newPin.id, …, photo.exif) → ExifをそのままDB保存 → refreshLists → 詳細シートを閉じる
+詳細シートで写真コメントを入力
+  └─ 各写真テキストフィールドで即時編集（保存ボタン押下まで反映待ち）
+       └─ 「保存」押下 → 変更があった写真のみ photoRepo.updateComment() → DB更新
+
+詳細シートでサムネイルを変更（★/☆ボタン）
+  └─ ★ボタン押下 → setThumbnailPhotoId(photo.id) → isDirty = true
+       └─ 「保存」押下 → updatePin(pin, { thumbnailPhotoId }) → pins テーブルに保存 → 一覧サムネイル更新
 
 ピン削除（論理削除）
   └─ softDeletePin() → deletedAt を設定 → refreshLists → syncMarkers

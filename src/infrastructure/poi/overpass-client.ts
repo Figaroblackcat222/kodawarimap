@@ -31,8 +31,8 @@ function resolveCategoryId(tags: Record<string, string>): string {
   if (tags["tourism"] === "museum") return "travel";
   if (tags["leisure"] === "fishing") return "fishing";
   if (tags["tourism"] === "attraction") return "travel";
-  if ("historic" in tags) return "general";
-  return "general";
+  if ("historic" in tags) return "travel";
+  return "travel";
 }
 
 export async function fetchPoiFromOverpass(bbox: Bbox): Promise<FeatureCollection["features"]> {

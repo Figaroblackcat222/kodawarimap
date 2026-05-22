@@ -19,6 +19,7 @@ export const dexiePhotoRepository: PhotoRepository = {
       blob,
       mimeType,
       createdAt,
+      comment: undefined,
       exifTakenAt: exif?.takenAt,
       exifTakenAtEstimated: exif?.takenAtEstimated,
       exifCameraMake: exif?.cameraMake,
@@ -31,7 +32,7 @@ export const dexiePhotoRepository: PhotoRepository = {
       originalFileSize: fileInfo?.originalFileSize,
       originalLastModified: fileInfo?.originalLastModified,
     });
-    return { id, pinId, blob, mimeType, createdAt, exif, fileInfo };
+    return { id, pinId, blob, mimeType, createdAt, comment: undefined, exif, fileInfo };
   },
 
   async findByPinId(pinId: PinId): Promise<Photo[]> {
@@ -53,6 +54,7 @@ export const dexiePhotoRepository: PhotoRepository = {
         blob: r.blob,
         mimeType: r.mimeType,
         createdAt: r.createdAt,
+        comment: r.comment,
         exif: hasExif
           ? {
               takenAt: r.exifTakenAt,
@@ -76,6 +78,10 @@ export const dexiePhotoRepository: PhotoRepository = {
     });
   },
 
+  async updateComment(id: string, comment: string | undefined): Promise<void> {
+    await db.photos.update(id, { comment });
+  },
+
   async restore(photo: Photo): Promise<void> {
     await db.photos.put({
       id: photo.id,
@@ -83,6 +89,7 @@ export const dexiePhotoRepository: PhotoRepository = {
       blob: photo.blob,
       mimeType: photo.mimeType,
       createdAt: photo.createdAt,
+      comment: photo.comment,
       exifTakenAt: photo.exif?.takenAt,
       exifTakenAtEstimated: photo.exif?.takenAtEstimated,
       exifCameraMake: photo.exif?.cameraMake,

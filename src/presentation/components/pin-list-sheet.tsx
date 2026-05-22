@@ -1,5 +1,18 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { SlidersHorizontal, Trash2, X, ChevronDown, ChevronUp, List, FilterX } from "lucide-react";
+import {
+  SlidersHorizontal,
+  Trash2,
+  X,
+  ChevronDown,
+  ChevronUp,
+  List,
+  FilterX,
+  LayoutGrid,
+  Smile,
+  Tag,
+  Calendar,
+  type LucideIcon,
+} from "lucide-react";
 import type { Pin, PinReaction } from "@domain/entities/pin";
 import type { PhotoRepository } from "@application/ports/photo-repository";
 import { PRESET_CATEGORIES } from "@domain/entities/category";
@@ -40,7 +53,12 @@ interface Props {
   sortOrder: "date" | "title";
   listScope: "all" | "visible";
   mapBounds: MapBounds | null;
-  eventKeywords: string[];
+  tagKeywords: string[];
+  onFilteredPinsChange?: (pins: Pin[]) => void;
+}
+
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function applyDatePreset(
@@ -54,52 +72,73 @@ function applyDatePreset(
     return;
   }
   const now = new Date();
-  const start = new Date(now);
   if (preset === "today") {
-    start.setHours(0, 0, 0, 0);
-    setFrom(start.toISOString().split("T")[0]);
-    setTo(start.toISOString().split("T")[0]);
+    const s = toLocalDateStr(now);
+    setFrom(s);
+    setTo(s);
     return;
   }
+  const start = new Date(now);
   if (preset === "week") {
-    start.setDate(now.getDate() - now.getDay());
-    start.setHours(0, 0, 0, 0);
+    start.setDate(now.getDate() - now.getDay()); // 日曜起点
   } else if (preset === "month") {
     start.setDate(1);
-    start.setHours(0, 0, 0, 0);
   } else {
     start.setMonth(0, 1);
-    start.setHours(0, 0, 0, 0);
   }
-  setFrom(start.toISOString().split("T")[0]);
+  setFrom(toLocalDateStr(start));
   setTo("");
 }
 
-function PinThumb({ pinId, photoRepo }: { pinId: string; photoRepo: PhotoRepository }) {
+function PinThumb({ pin, photoRepo }: { pin: Pin; photoRepo: PhotoRepository }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [count, setCount] = useState(0);
 
   useEffect(() => {
     let objectUrl: string | null = null;
     let cancelled = false;
-    photoRepo.findByPinId(pinId).then((photos) => {
+    photoRepo.findByPinId(pin.id).then((photos) => {
       if (!cancelled && photos.length > 0) {
-        objectUrl = URL.createObjectURL(photos[0].blob);
+        const thumb = pin.thumbnailPhotoId
+          ? (photos.find((p) => p.id === pin.thumbnailPhotoId) ?? photos[0])
+          : photos[0];
+        objectUrl = URL.createObjectURL(thumb.blob);
         setUrl(objectUrl);
+        setCount(photos.length);
       }
     });
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [pinId, photoRepo]);
+  }, [pin.id, pin.thumbnailPhotoId, photoRepo]);
 
   if (!url) return null;
   return (
-    <img
-      src={url}
-      alt=""
-      style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
-    />
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <img
+        src={url}
+        alt=""
+        style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6, display: "block" }}
+      />
+      {count > 1 && (
+        <span
+          style={{
+            position: "absolute",
+            bottom: 2,
+            right: 2,
+            background: "rgba(0,0,0,0.55)",
+            color: "#fff",
+            fontSize: 9,
+            padding: "1px 3px",
+            borderRadius: 3,
+            lineHeight: 1.4,
+          }}
+        >
+          {count}枚
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -119,19 +158,21 @@ export function PinListSheet({
   sortOrder,
   listScope,
   mapBounds,
-  eventKeywords,
+  tagKeywords,
+  onFilteredPinsChange,
 }: Props) {
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [keyword, setKeyword] = useState("");
   const [showTrash, setShowTrash] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [reactionFilter, setReactionFilter] = useState<PinReaction | "none" | "all">("all");
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [openSection, setOpenSection] = useState<"category" | "reaction" | "tag" | "date" | null>(
+    null
+  );
+  const [isFilterBarOpen, setIsFilterBarOpen] = useState(false);
   const [takenFrom, setTakenFrom] = useState("");
   const [takenTo, setTakenTo] = useState("");
-  const [eventFilter, setEventFilter] = useState<string[]>([]);
-  const [eventDropdownOpen, setEventDropdownOpen] = useState(false);
-  const eventDropdownRef = useRef<HTMLDivElement>(null);
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
 
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
@@ -177,21 +218,10 @@ export function PinListSheet({
   );
 
   useEffect(() => {
-    if (isFilterOpen) {
-      onSheetHeightChange(Math.round(window.innerHeight * MAX_HEIGHT_RATIO));
+    if ((isFilterBarOpen || openSection !== null) && sheetHeight <= MIN_HEIGHT) {
+      onSheetHeightChange(Math.round(window.innerHeight * 0.4));
     }
-  }, [isFilterOpen, onSheetHeightChange]);
-
-  useEffect(() => {
-    if (!eventDropdownOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (eventDropdownRef.current && !eventDropdownRef.current.contains(e.target as Node)) {
-        setEventDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [eventDropdownOpen]);
+  }, [isFilterBarOpen, openSection, onSheetHeightChange, sheetHeight]);
 
   const activePins = useMemo(() => {
     let result = pins;
@@ -211,7 +241,7 @@ export function PinListSheet({
           (t) =>
             p.title.toLowerCase().includes(t) ||
             (p.comment?.toLowerCase().includes(t) ?? false) ||
-            (p.event?.toLowerCase().includes(t) ?? false)
+            (p.tag?.toLowerCase().includes(t) ?? false)
         )
       );
     }
@@ -225,8 +255,8 @@ export function PinListSheet({
         result = result.filter((p) => p.reaction === reactionFilter);
       }
     }
-    if (eventFilter.length > 0) {
-      result = result.filter((p) => p.event && eventFilter.includes(p.event));
+    if (tagFilter.length > 0) {
+      result = result.filter((p) => p.tag && tagFilter.includes(p.tag));
     }
     if (takenFrom || takenTo) {
       const from = takenFrom ? new Date(takenFrom) : null;
@@ -254,13 +284,58 @@ export function PinListSheet({
     keyword,
     categoryFilter,
     reactionFilter,
-    eventFilter,
+    tagFilter,
     takenFrom,
     takenTo,
     sortOrder,
     listScope,
     mapBounds,
   ]);
+
+  // listScope を除いたフィルター結果をマップに通知する
+  const filteredForMap = useMemo(() => {
+    let result = pins;
+    if (keyword.trim()) {
+      const terms = keyword.toLowerCase().split(/\s+/).filter(Boolean);
+      result = result.filter((p) =>
+        terms.every(
+          (t) =>
+            p.title.toLowerCase().includes(t) ||
+            (p.comment?.toLowerCase().includes(t) ?? false) ||
+            (p.tag?.toLowerCase().includes(t) ?? false)
+        )
+      );
+    }
+    if (categoryFilter !== "all") {
+      result = result.filter((p) => (p.categoryId ?? "general") === categoryFilter);
+    }
+    if (reactionFilter !== "all") {
+      if (reactionFilter === "none") {
+        result = result.filter((p) => !p.reaction);
+      } else {
+        result = result.filter((p) => p.reaction === reactionFilter);
+      }
+    }
+    if (tagFilter.length > 0) {
+      result = result.filter((p) => p.tag && tagFilter.includes(p.tag));
+    }
+    if (takenFrom || takenTo) {
+      const from = takenFrom ? new Date(takenFrom) : null;
+      const to = takenTo ? new Date(takenTo + "T23:59:59") : null;
+      result = result.filter((p) => {
+        const taken = p.exif?.takenAt;
+        if (!taken) return false;
+        if (from && taken < from) return false;
+        if (to && taken > to) return false;
+        return true;
+      });
+    }
+    return result;
+  }, [pins, keyword, categoryFilter, reactionFilter, tagFilter, takenFrom, takenTo]);
+
+  useEffect(() => {
+    onFilteredPinsChange?.(filteredForMap);
+  }, [filteredForMap, onFilteredPinsChange]);
 
   const currentList = showTrash ? deletedPins : activePins;
   const isExpanded = sheetHeight > MIN_HEIGHT;
@@ -342,7 +417,8 @@ export function PinListSheet({
             style={{
               flexShrink: 0,
               padding: "0 12px 8px",
-              borderBottom: "1px solid var(--border-light)",
+              borderBottom: "2px solid var(--border)",
+              boxShadow: "0 2px 8px var(--shadow)",
             }}
           >
             {/* タブ */}
@@ -399,375 +475,346 @@ export function PinListSheet({
             </div>
 
             {!showTrash && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <div style={{ position: "relative", flex: 1 }}>
-                  <input
-                    type="text"
-                    placeholder="キーワードで絞り込み（スペース区切りでAND）"
-                    value={keyword}
-                    onChange={(e) => setKeyword(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: keyword ? "8px 32px 8px 12px" : "8px 12px",
-                      borderRadius: 8,
-                      border: "1px solid var(--border)",
-                      fontSize: 14,
-                      outline: "none",
-                      boxSizing: "border-box",
-                      background: "var(--input-bg)",
-                      color: "var(--text-primary)",
-                    }}
-                  />
-                  {keyword && (
-                    <button
-                      onClick={() => setKeyword("")}
+              <div>
+                {/* キーワード検索 + フィルターリセット + 絞り込みトグル */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    marginBottom: isFilterBarOpen ? 8 : 0,
+                  }}
+                >
+                  <div style={{ position: "relative", flex: 1 }}>
+                    <input
+                      type="text"
+                      placeholder="キーワードで絞り込み（スペース区切りでAND）"
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
                       style={{
-                        position: "absolute",
-                        right: 8,
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        background: "none",
-                        border: "none",
-                        color: "var(--text-muted)",
-                        cursor: "pointer",
-                        padding: 0,
+                        width: "100%",
+                        padding: keyword ? "8px 32px 8px 12px" : "8px 12px",
+                        borderRadius: 8,
+                        border: "1.5px solid var(--border)",
+                        fontSize: 14,
+                        outline: "none",
+                        boxSizing: "border-box",
+                        background: "var(--input-bg)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                    {keyword && (
+                      <button
+                        onClick={() => setKeyword("")}
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "none",
+                          border: "none",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          padding: 0,
+                          display: "flex",
+                          alignItems: "center",
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {(categoryFilter !== "all" ||
+                    reactionFilter !== "all" ||
+                    tagFilter.length > 0 ||
+                    takenFrom ||
+                    takenTo) && (
+                    <button
+                      onClick={() => {
+                        setCategoryFilter("all");
+                        setReactionFilter("all");
+                        setTagFilter([]);
+                        setTakenFrom("");
+                        setTakenTo("");
+                        setOpenSection(null);
+                      }}
+                      title="フィルターをリセット"
+                      style={{
+                        flexShrink: 0,
                         display: "flex",
                         alignItems: "center",
+                        padding: "8px 10px",
+                        border: "1.5px solid #ef4444",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                        background: "none",
+                        color: "#ef4444",
                       }}
                     >
-                      <X size={14} />
+                      <FilterX size={15} />
                     </button>
                   )}
-                </div>
-                {(categoryFilter !== "all" ||
-                  reactionFilter !== "all" ||
-                  eventFilter.length > 0 ||
-                  takenFrom ||
-                  takenTo) && (
                   <button
                     onClick={() => {
-                      setCategoryFilter("all");
-                      setReactionFilter("all");
-                      setEventFilter([]);
-                      setTakenFrom("");
-                      setTakenTo("");
+                      const next = !isFilterBarOpen;
+                      setIsFilterBarOpen(next);
+                      if (!next) setOpenSection(null);
                     }}
-                    title="フィルターをリセット"
                     style={{
                       flexShrink: 0,
                       display: "flex",
                       alignItems: "center",
+                      gap: 4,
                       padding: "8px 10px",
-                      border: "1.5px solid #ef4444",
+                      border: "1.5px solid var(--border)",
                       borderRadius: 8,
+                      fontSize: 12,
                       cursor: "pointer",
-                      background: "none",
-                      color: "#ef4444",
+                      background: isFilterBarOpen ? "var(--text-primary)" : "var(--bg-primary)",
+                      color: isFilterBarOpen ? "var(--bg-primary)" : "var(--text-secondary)",
+                      boxShadow: isFilterBarOpen ? "none" : "var(--btn-shadow)",
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    <FilterX size={15} />
+                    <SlidersHorizontal size={13} />
+                    絞り込み
                   </button>
+                </div>
+
+                {/* フィルターセクションボタン（絞り込みバー展開時のみ表示） */}
+                {isFilterBarOpen && (
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <SectionFilterButton
+                      label="カテゴリー"
+                      active={openSection === "category"}
+                      hasFilter={categoryFilter !== "all"}
+                      onClick={() => setOpenSection((s) => (s === "category" ? null : "category"))}
+                      color="#3b82f6"
+                      icon={LayoutGrid}
+                    />
+                    <SectionFilterButton
+                      label="リアクション"
+                      active={openSection === "reaction"}
+                      hasFilter={reactionFilter !== "all"}
+                      onClick={() => setOpenSection((s) => (s === "reaction" ? null : "reaction"))}
+                      color="#22c55e"
+                      icon={Smile}
+                    />
+                    <SectionFilterButton
+                      label="マイタグ"
+                      active={openSection === "tag"}
+                      hasFilter={tagFilter.length > 0}
+                      onClick={() => setOpenSection((s) => (s === "tag" ? null : "tag"))}
+                      color="#8b5cf6"
+                      icon={Tag}
+                    />
+                    <SectionFilterButton
+                      label="撮影日"
+                      active={openSection === "date"}
+                      hasFilter={!!(takenFrom || takenTo)}
+                      onClick={() => setOpenSection((s) => (s === "date" ? null : "date"))}
+                      color="#f59e0b"
+                      icon={Calendar}
+                    />
+                  </div>
                 )}
-                <button
-                  onClick={() => setIsFilterOpen((v) => !v)}
-                  style={{
-                    flexShrink: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                    padding: "8px 12px",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    cursor: "pointer",
-                    background: isFilterOpen ? "var(--text-primary)" : "var(--bg-primary)",
-                    color: isFilterOpen ? "var(--bg-primary)" : "var(--text-secondary)",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <SlidersHorizontal size={14} />
-                  {isDesktop && " フィルター"}
-                </button>
-              </div>
-            )}
-          </div>
 
-          {/* フィルター展開エリア */}
-          {!showTrash && isFilterOpen && (
-            <div
-              style={{
-                flexShrink: 0,
-                padding: "8px 12px",
-                borderBottom: "1px solid var(--border-light)",
-                background: "var(--bg-secondary)",
-              }}
-            >
-              {/* カテゴリーフィルター */}
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 8,
-                }}
-              >
-                <FilterPill
-                  label="すべて"
-                  active={categoryFilter === "all"}
-                  color="#1a1a2e"
-                  onClick={() => setCategoryFilter("all")}
-                />
-                {PRESET_CATEGORIES.map((cat) => (
-                  <FilterPill
-                    key={cat.id}
-                    label={`${cat.emoji} ${cat.name}`}
-                    active={categoryFilter === cat.id}
-                    color={cat.markerColor}
-                    onClick={() => setCategoryFilter(cat.id)}
-                  />
-                ))}
-              </div>
-
-              {/* リアクションフィルター */}
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: 8,
-                }}
-              >
-                <FilterPill
-                  label="すべて"
-                  active={reactionFilter === "all"}
-                  color="#6b7280"
-                  onClick={() => setReactionFilter("all")}
-                />
-                <FilterPill
-                  label="😊 また行きたい"
-                  active={reactionFilter === "want_to_revisit"}
-                  color="#22c55e"
-                  onClick={() => setReactionFilter("want_to_revisit")}
-                />
-                <FilterPill
-                  label="😐 一回でいいかな"
-                  active={reactionFilter === "once_was_enough"}
-                  color="#f59e0b"
-                  onClick={() => setReactionFilter("once_was_enough")}
-                />
-                <FilterPill
-                  label="😩 二度と行かない"
-                  active={reactionFilter === "never_again"}
-                  color="#ef4444"
-                  onClick={() => setReactionFilter("never_again")}
-                />
-                <FilterPill
-                  label="未設定"
-                  active={reactionFilter === "none"}
-                  color="#9ca3af"
-                  onClick={() => setReactionFilter("none")}
-                />
-              </div>
-
-              {/* イベントフィルター */}
-              {eventKeywords.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
+                {/* インライン展開エリア */}
+                {openSection !== null && (
                   <div
-                    ref={eventDropdownRef}
-                    style={{ position: "relative", display: "inline-block" }}
+                    style={{
+                      marginTop: 8,
+                      paddingTop: 8,
+                      borderTop: "1px solid var(--border-light)",
+                    }}
                   >
-                    <button
-                      onClick={() => setEventDropdownOpen((v) => !v)}
-                      style={{
-                        padding: "4px 10px",
-                        borderRadius: 12,
-                        border: "1.5px solid var(--border)",
-                        background:
-                          eventFilter.length > 0 ? "var(--text-primary)" : "var(--bg-primary)",
-                        color:
-                          eventFilter.length > 0 ? "var(--bg-primary)" : "var(--text-secondary)",
-                        fontSize: 12,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      イベント{eventFilter.length > 0 && ` (${eventFilter.length})`}
-                    </button>
-                    {eventDropdownOpen && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: "100%",
-                          left: 0,
-                          zIndex: 100,
-                          minWidth: 160,
-                          background: "var(--bg-primary)",
-                          border: "1.5px solid var(--border)",
-                          borderRadius: 8,
-                          maxHeight: 200,
-                          overflowY: "auto",
-                          boxShadow: "0 4px 12px rgba(0,0,0,.15)",
-                          marginTop: 4,
-                        }}
-                      >
-                        {eventKeywords.map((kw) => (
-                          <div
-                            key={kw}
-                            onMouseDown={() =>
-                              setEventFilter((f) =>
-                                f.includes(kw) ? f.filter((x) => x !== kw) : [...f, kw]
-                              )
-                            }
-                            style={{
-                              padding: "10px 12px",
-                              cursor: "pointer",
-                              fontSize: 14,
-                              color: "var(--text-primary)",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                              background: eventFilter.includes(kw)
-                                ? "var(--bg-secondary)"
-                                : "transparent",
-                            }}
-                          >
-                            <span style={{ fontSize: 15 }}>
-                              {eventFilter.includes(kw) ? "☑" : "☐"}
-                            </span>
-                            {kw}
-                          </div>
+                    {openSection === "category" && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        <FilterPill
+                          label="すべて"
+                          active={categoryFilter === "all"}
+                          color="#1a1a2e"
+                          onClick={() => setCategoryFilter("all")}
+                        />
+                        {PRESET_CATEGORIES.map((cat) => (
+                          <FilterPill
+                            key={cat.id}
+                            label={`${cat.emoji} ${cat.name}`}
+                            active={categoryFilter === cat.id}
+                            color={cat.markerColor}
+                            onClick={() => setCategoryFilter(cat.id)}
+                          />
                         ))}
                       </div>
                     )}
-                  </div>
-                  {eventFilter.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                      {eventFilter.map((ev) => (
-                        <span
-                          key={ev}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 4,
-                            background: "var(--text-primary)",
-                            color: "var(--bg-primary)",
-                            borderRadius: 12,
-                            padding: "2px 8px",
-                            fontSize: 12,
-                          }}
-                        >
-                          {ev}
-                          <button
-                            onMouseDown={() => setEventFilter((f) => f.filter((x) => x !== ev))}
+
+                    {openSection === "reaction" && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        <FilterPill
+                          label="すべて"
+                          active={reactionFilter === "all"}
+                          color="#6b7280"
+                          onClick={() => setReactionFilter("all")}
+                        />
+                        <FilterPill
+                          label="😊 また行きたい"
+                          active={reactionFilter === "want_to_revisit"}
+                          color="#22c55e"
+                          onClick={() => setReactionFilter("want_to_revisit")}
+                        />
+                        <FilterPill
+                          label="😐 一回でいいかな"
+                          active={reactionFilter === "once_was_enough"}
+                          color="#f59e0b"
+                          onClick={() => setReactionFilter("once_was_enough")}
+                        />
+                        <FilterPill
+                          label="😩 二度と行かない"
+                          active={reactionFilter === "never_again"}
+                          color="#ef4444"
+                          onClick={() => setReactionFilter("never_again")}
+                        />
+                        <FilterPill
+                          label="未設定"
+                          active={reactionFilter === "none"}
+                          color="#9ca3af"
+                          onClick={() => setReactionFilter("none")}
+                        />
+                      </div>
+                    )}
+
+                    {openSection === "tag" && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {tagKeywords.length === 0 ? (
+                          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                            マイタグがまだ記録されていません
+                          </p>
+                        ) : (
+                          tagKeywords.map((kw) => (
+                            <FilterPill
+                              key={kw}
+                              label={kw}
+                              active={tagFilter.includes(kw)}
+                              color="#8b5cf6"
+                              onClick={() =>
+                                setTagFilter((f) =>
+                                  f.includes(kw) ? f.filter((x) => x !== kw) : [...f, kw]
+                                )
+                              }
+                            />
+                          ))
+                        )}
+                      </div>
+                    )}
+
+                    {openSection === "date" && (
+                      <div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                          {(["all", "today", "week", "month", "year"] as const).map((preset) => {
+                            const now = new Date();
+                            const todayStr = toLocalDateStr(now);
+                            const weekStart = toLocalDateStr(
+                              new Date(
+                                now.getFullYear(),
+                                now.getMonth(),
+                                now.getDate() - now.getDay()
+                              )
+                            );
+                            const monthStart = toLocalDateStr(
+                              new Date(now.getFullYear(), now.getMonth(), 1)
+                            );
+                            const yearStart = toLocalDateStr(new Date(now.getFullYear(), 0, 1));
+                            const isActive =
+                              preset === "all"
+                                ? !takenFrom && !takenTo
+                                : preset === "today"
+                                  ? takenFrom === todayStr && takenTo === todayStr
+                                  : preset === "week"
+                                    ? takenFrom === weekStart && !takenTo
+                                    : preset === "month"
+                                      ? takenFrom === monthStart && !takenTo
+                                      : takenFrom === yearStart && !takenTo;
+                            return (
+                              <FilterPill
+                                key={preset}
+                                label={
+                                  preset === "all"
+                                    ? "全期間"
+                                    : preset === "today"
+                                      ? "今日"
+                                      : preset === "week"
+                                        ? "今週"
+                                        : preset === "month"
+                                          ? "今月"
+                                          : "今年"
+                                }
+                                active={isActive}
+                                color="#6366f1"
+                                onClick={() => applyDatePreset(preset, setTakenFrom, setTakenTo)}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 11, color: "#999", flexShrink: 0 }}>期間</span>
+                          <input
+                            type="date"
+                            value={takenFrom}
+                            onChange={(e) => setTakenFrom(e.target.value)}
                             style={{
-                              background: "none",
-                              border: "none",
-                              color: "inherit",
-                              cursor: "pointer",
-                              padding: 0,
-                              lineHeight: 1,
-                              fontSize: 14,
+                              padding: "4px 6px",
+                              borderRadius: 6,
+                              border: "1.5px solid var(--border)",
+                              fontSize: 12,
+                              outline: "none",
+                              background: "var(--input-bg)",
+                              color: "var(--text-primary)",
                             }}
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 撮影日プリセット */}
-              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                {(["all", "today", "week", "month", "year"] as const).map((preset) => {
-                  const todayStr = new Date().toISOString().split("T")[0];
-                  const isActive =
-                    preset === "all"
-                      ? !takenFrom && !takenTo
-                      : preset === "today"
-                        ? takenFrom === todayStr && takenTo === todayStr
-                        : false;
-                  return (
-                    <FilterPill
-                      key={preset}
-                      label={
-                        preset === "all"
-                          ? "全期間"
-                          : preset === "today"
-                            ? "今日"
-                            : preset === "week"
-                              ? "今週"
-                              : preset === "month"
-                                ? "今月"
-                                : "今年"
-                      }
-                      active={isActive}
-                      color="#6366f1"
-                      onClick={() => applyDatePreset(preset, setTakenFrom, setTakenTo)}
-                    />
-                  );
-                })}
-              </div>
-
-              {/* 撮影日カスタム範囲 */}
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 11, color: "#999", flexShrink: 0 }}>撮影日</span>
-                <input
-                  type="date"
-                  value={takenFrom}
-                  onChange={(e) => setTakenFrom(e.target.value)}
-                  style={{
-                    flex: 1,
-                    padding: "4px 6px",
-                    borderRadius: 6,
-                    border: "1px solid var(--border)",
-                    fontSize: 12,
-                    outline: "none",
-                    background: "var(--input-bg)",
-                    color: "var(--text-primary)",
-                  }}
-                />
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>〜</span>
-                <input
-                  type="date"
-                  value={takenTo}
-                  onChange={(e) => setTakenTo(e.target.value)}
-                  style={{
-                    flex: 1,
-                    padding: "4px 6px",
-                    borderRadius: 6,
-                    border: "1px solid var(--border)",
-                    fontSize: 12,
-                    outline: "none",
-                    background: "var(--input-bg)",
-                    color: "var(--text-primary)",
-                  }}
-                />
-                {(takenFrom || takenTo) && (
-                  <button
-                    onClick={() => {
-                      setTakenFrom("");
-                      setTakenTo("");
-                    }}
-                    style={{
-                      flexShrink: 0,
-                      background: "none",
-                      border: "none",
-                      color: "#aaa",
-                      fontSize: 14,
-                      cursor: "pointer",
-                      padding: "0 2px",
-                      display: "flex",
-                      alignItems: "center",
-                    }}
-                  >
-                    <X size={14} />
-                  </button>
+                          />
+                          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>〜</span>
+                          <input
+                            type="date"
+                            value={takenTo}
+                            onChange={(e) => setTakenTo(e.target.value)}
+                            style={{
+                              padding: "4px 6px",
+                              borderRadius: 6,
+                              border: "1.5px solid var(--border)",
+                              fontSize: 12,
+                              outline: "none",
+                              background: "var(--input-bg)",
+                              color: "var(--text-primary)",
+                            }}
+                          />
+                          {(takenFrom || takenTo) && (
+                            <button
+                              onClick={() => {
+                                setTakenFrom("");
+                                setTakenTo("");
+                              }}
+                              style={{
+                                flexShrink: 0,
+                                background: "none",
+                                border: "none",
+                                color: "#aaa",
+                                fontSize: 14,
+                                cursor: "pointer",
+                                padding: "0 2px",
+                                display: "flex",
+                                alignItems: "center",
+                              }}
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {showTrash && (
             <div
@@ -837,7 +884,7 @@ export function PinListSheet({
                       gap: 8,
                     }}
                   >
-                    <PinThumb pinId={pin.id} photoRepo={photoRepo} />
+                    <PinThumb pin={pin} photoRepo={photoRepo} />
                     <button
                       onClick={() => {
                         if (!showTrash) {
@@ -904,7 +951,7 @@ export function PinListSheet({
                             <> · 削除: {pin.deletedAt.toLocaleDateString("ja-JP")}</>
                           )}
                         </span>
-                        {pin.event && (
+                        {pin.tag && (
                           <span
                             style={{
                               fontSize: 11,
@@ -912,7 +959,7 @@ export function PinListSheet({
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {pin.event}
+                            {pin.tag}
                           </span>
                         )}
                       </div>
@@ -1028,10 +1075,57 @@ function FilterPill({
         background: active ? color : "var(--pill-bg)",
         color: active ? "#fff" : "var(--pill-text)",
         fontWeight: active ? 700 : 400,
+        boxShadow: active ? "none" : "var(--btn-shadow)",
         transition: "all 0.15s",
       }}
     >
       {label}
+    </button>
+  );
+}
+
+function SectionFilterButton({
+  label,
+  active,
+  hasFilter,
+  onClick,
+  color,
+  icon: Icon,
+}: {
+  label: string;
+  active: boolean;
+  hasFilter: boolean;
+  onClick: () => void;
+  color: string;
+  icon: LucideIcon;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 3,
+        padding: "6px 4px",
+        border: "1px solid",
+        borderColor: hasFilter ? color : "var(--border)",
+        borderRadius: 8,
+        fontSize: 12,
+        cursor: "pointer",
+        background: active ? color : "var(--bg-primary)",
+        color: active ? "#fff" : hasFilter ? color : "var(--text-secondary)",
+        fontWeight: hasFilter ? 600 : 400,
+        boxShadow: active ? "none" : "var(--btn-shadow)",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        transition: "all 0.15s",
+      }}
+    >
+      <Icon size={11} />
+      {label}
+      {active ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
     </button>
   );
 }

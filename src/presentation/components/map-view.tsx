@@ -6,7 +6,7 @@ import { useMap } from "@infrastructure/map/use-map";
 import { loadPoiTile } from "@infrastructure/poi/poi-loader";
 import { lngLatToTile } from "@infrastructure/poi/tile-utils";
 import type { Pin, PinExif } from "@domain/entities/pin";
-import type { Photo, PhotoExif, PhotoFileInfo } from "@domain/entities/photo";
+import type { PhotoExif, PhotoFileInfo } from "@domain/entities/photo";
 import { parseExif } from "@infrastructure/exif/exif-parser";
 import { dexiePinRepository } from "@infrastructure/persistence/dexie-pin-repository";
 import { addPin } from "@application/use-cases/add-pin";
@@ -378,6 +378,8 @@ export function MapView() {
   const [message, setMessage] = useState<string | null>(null);
   const [category, setCategory] = useState<Category>(DEFAULT_CATEGORY);
   const [selectedPin, setSelectedPin] = useState<Pin | null>(null);
+  const [isNewPin, setIsNewPin] = useState(false);
+  const [filteredPinIds, setFilteredPinIds] = useState<Set<string> | null>(null);
   const [clusterPins, setClusterPins] = useState<Pin[] | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [sheetHeight, setSheetHeight] = useState<number>(getInitialSheetHeight);
@@ -417,10 +419,10 @@ export function MapView() {
   );
   const [nightEnd, setNightEnd] = useState(() => localStorage.getItem(NIGHT_END_KEY) ?? "06:00");
 
-  const eventKeywords = useMemo(() => {
+  const tagKeywords = useMemo(() => {
     const set = new Set<string>();
     for (const p of pins) {
-      if (p.event?.trim()) set.add(p.event.trim());
+      if (p.tag?.trim()) set.add(p.tag.trim());
     }
     return [...set].sort();
   }, [pins]);
@@ -702,6 +704,7 @@ export function MapView() {
       provisionalMarkerRef.current = null;
       setProvisionalPinData(null);
       setSelectedPin(pin);
+      setIsNewPin(true);
       showMessage(`📍 ${pin.title} をプロットしました`);
     } catch (err) {
       console.error("ピンの保存中にエラーが発生しました:", err);
@@ -833,36 +836,6 @@ export function MapView() {
     [refreshLists, showMessage]
   );
 
-  const handleSplitPhoto = useCallback(
-    async (photo: Photo, sourcePin: Pin) => {
-      await dexiePhotoRepository.delete(photo.id);
-      const newPinExif = photo.exif
-        ? {
-            takenAt: photo.exif.takenAt,
-            cameraMake: photo.exif.cameraMake,
-            cameraModel: photo.exif.cameraModel,
-            fNumber: photo.exif.fNumber,
-            exposureTime: photo.exif.exposureTime,
-            focalLength: photo.exif.focalLength,
-            iso: photo.exif.iso,
-          }
-        : undefined;
-      const newPin = await addPin(
-        repo,
-        sourcePin.coordinates,
-        sourcePin.title,
-        sourcePin.categoryId,
-        newPinExif
-      );
-      await dexiePhotoRepository.save(newPin.id, photo.blob, photo.mimeType, photo.exif);
-      void loadPoiForPin(sourcePin.coordinates.lng, sourcePin.coordinates.lat);
-      await refreshLists();
-      setSelectedPin(null);
-      showMessage(`写真を新しいピンに分割しました`);
-    },
-    [refreshLists, showMessage, loadPoiForPin]
-  );
-
   const handleMapClickWithDismiss = useCallback(
     (lng: number, lat: number) => {
       if (longPressPinRef.current) {
@@ -974,22 +947,24 @@ export function MapView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // pins 変化時にマーカーを再同期（起動後の追加・削除・復元に対応）
+  // pins / フィルター変化時にマーカーを再同期
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
-    syncMarkers(map, pins);
+    const toShow = filteredPinIds ? pins.filter((p) => filteredPinIds.has(p.id)) : pins;
+    syncMarkers(map, toShow);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pins, syncMarkers]);
+  }, [pins, filteredPinIds, syncMarkers]);
 
-  // 選択ピンのマーカーを最前面に
+  // 詳細表示中は選択ピンのマーカーを非表示にする
   useEffect(() => {
     markersRef.current.forEach((m) => {
       m.getElement().style.zIndex = "";
+      m.getElement().style.visibility = "";
     });
     if (selectedPin) {
       const m = markersRef.current.get(selectedPin.id);
-      if (m) m.getElement().style.zIndex = "1000";
+      if (m) m.getElement().style.visibility = "hidden";
     }
   }, [selectedPin]);
 
@@ -1058,7 +1033,12 @@ export function MapView() {
         sortOrder={sortOrder}
         listScope={listScope}
         mapBounds={mapBounds}
-        eventKeywords={eventKeywords}
+        tagKeywords={tagKeywords}
+        onFilteredPinsChange={(filtered) => {
+          setFilteredPinIds(
+            filtered.length < pins.length ? new Set(filtered.map((p) => p.id)) : null
+          );
+        }}
       />
       {longPressPin && (
         <div
@@ -1222,13 +1202,15 @@ export function MapView() {
         <PinDetailSheet
           key={selectedPin.id}
           pin={selectedPin}
+          isNew={isNewPin}
           photoRepo={dexiePhotoRepository}
           onSave={handleDetailSave}
-          onClose={() => setSelectedPin(null)}
-          onFlyTo={handlePinFlyTo}
-          onSplitPhoto={(photo) => handleSplitPhoto(photo, selectedPin)}
+          onClose={() => {
+            setSelectedPin(null);
+            setIsNewPin(false);
+          }}
           sheetHeight={sheetHeight}
-          eventKeywords={eventKeywords}
+          tagKeywords={tagKeywords}
         />
       )}
       {clusterPins && (

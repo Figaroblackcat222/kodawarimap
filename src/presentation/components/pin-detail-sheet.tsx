@@ -1,15 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import {
-  X,
-  Plus,
-  Loader2,
-  Map as MapIcon,
-  Pencil,
-  ExternalLink,
-  Download,
-  Lock,
-} from "lucide-react";
+import { X, Plus, Loader2, Pencil, ExternalLink, Download, Lock } from "lucide-react";
 import { normalizePhoto } from "@infrastructure/image/normalize-photo";
 import { parseExif } from "@infrastructure/exif/exif-parser";
 import { downloadPhoto } from "@infrastructure/image/write-exif";
@@ -20,13 +11,12 @@ import { PRESET_CATEGORIES, DEFAULT_CATEGORY } from "@domain/entities/category";
 
 interface Props {
   pin: Pin;
+  isNew?: boolean;
   photoRepo: PhotoRepository;
   onSave: (updated: Pin) => void;
   onClose: () => void;
-  onFlyTo: (pin: Pin) => void;
-  onSplitPhoto: (photo: Photo) => Promise<void>;
   sheetHeight: number;
-  eventKeywords: string[];
+  tagKeywords: string[];
 }
 
 const REACTION_OPTIONS: {
@@ -66,17 +56,16 @@ function toDatetimeLocal(date: Date): string {
 
 export function PinDetailSheet({
   pin,
+  isNew = false,
   photoRepo,
   onSave,
   onClose,
-  onFlyTo,
-  onSplitPhoto,
-  eventKeywords,
+  tagKeywords,
 }: Props) {
   const [title, setTitle] = useState(pin.title);
   const [categoryId, setCategoryId] = useState(pin.categoryId ?? DEFAULT_CATEGORY.id);
   const [comment, setComment] = useState(pin.comment ?? "");
-  const [event, setEvent] = useState(pin.event ?? "");
+  const [tag, setTag] = useState(pin.tag ?? "");
   const [location, setLocation] = useState(pin.location ?? "");
   const [url, setUrl] = useState(pin.url ?? "");
   const [videoUrl, setVideoUrl] = useState(pin.videoUrl ?? "");
@@ -88,32 +77,66 @@ export function PinDetailSheet({
   const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(new Map());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+  const [pendingAddIds, setPendingAddIds] = useState<string[]>([]);
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
   const [addProgress, setAddProgress] = useState<{ current: number; total: number } | null>(null);
   const [allowPhotoDownload, setAllowPhotoDownload] = useState(pin.allowPhotoDownload ?? false);
   const [reaction, setReaction] = useState<PinReaction | undefined>(pin.reaction);
+  const [thumbnailPhotoId, setThumbnailPhotoId] = useState<string | undefined>(
+    pin.thumbnailPhotoId
+  );
   const [isOtherInfoOpen, setIsOtherInfoOpen] = useState(false);
+  const [photoComments, setPhotoComments] = useState<Map<string, string>>(new Map());
   const [lbScale, setLbScale] = useState(1);
   const lbScaleRef = useRef(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const swipeDragRef = useRef<{ startX: number } | null>(null);
-  const [eventDropdownOpen, setEventDropdownOpen] = useState(false);
-  const filteredEventKeywords = useMemo(
+  const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
+  const filteredTagKeywords = useMemo(
     () =>
-      eventKeywords.filter(
-        (kw) => event.trim() === "" || kw.toLowerCase().includes(event.toLowerCase())
-      ),
-    [eventKeywords, event]
+      tagKeywords.filter((kw) => tag.trim() === "" || kw.toLowerCase().includes(tag.toLowerCase())),
+    [tagKeywords, tag]
   );
   const lbPointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchInitRef = useRef<{ dist: number; startScale: number } | null>(null);
+  const initialPhotoCountRef = useRef<number | null>(null);
+
+  const isDirty =
+    title !== pin.title ||
+    categoryId !== (pin.categoryId ?? DEFAULT_CATEGORY.id) ||
+    comment !== (pin.comment ?? "") ||
+    tag !== (pin.tag ?? "") ||
+    location !== (pin.location ?? "") ||
+    url !== (pin.url ?? "") ||
+    videoUrl !== (pin.videoUrl ?? "") ||
+    takenAt !== (pin.exif?.takenAt ? toDatetimeLocal(pin.exif.takenAt) : "") ||
+    allowPhotoDownload !== (pin.allowPhotoDownload ?? false) ||
+    reaction !== pin.reaction ||
+    thumbnailPhotoId !== pin.thumbnailPhotoId ||
+    pendingDeleteIds.length > 0 ||
+    (initialPhotoCountRef.current !== null && photos.length > initialPhotoCountRef.current) ||
+    Array.from(photoComments.entries()).some(
+      ([id, c]) => c.trim() !== (photos.find((p) => p.id === id)?.comment?.trim() ?? "")
+    );
+
+  const handleClose = async () => {
+    if (isDirty && !window.confirm("編集中の内容が保存されていません。閉じますか？")) return;
+    if (pendingAddIds.length > 0) {
+      await Promise.all(pendingAddIds.map((id) => photoRepo.delete(id)));
+    }
+    onClose();
+  };
 
   const currentCategory = PRESET_CATEGORIES.find((c) => c.id === categoryId) ?? DEFAULT_CATEGORY;
 
   useEffect(() => {
     let cancelled = false;
     photoRepo.findByPinId(pin.id).then((result) => {
-      if (!cancelled) setPhotos(result);
+      if (!cancelled) {
+        setPhotos(result);
+        setPhotoComments(new Map(result.map((p) => [p.id, p.comment ?? ""])));
+        initialPhotoCountRef.current = result.length;
+      }
     });
     return () => {
       cancelled = true;
@@ -127,7 +150,13 @@ export function PinDetailSheet({
   }, [photos]);
 
   const handleSave = async () => {
+    setPendingAddIds([]);
     await Promise.all(pendingDeleteIds.map((id) => photoRepo.delete(id)));
+    await Promise.all(
+      Array.from(photoComments.entries())
+        .filter(([id, c]) => c.trim() !== (photos.find((p) => p.id === id)?.comment?.trim() ?? ""))
+        .map(([id, c]) => photoRepo.updateComment(id, c.trim() || undefined))
+    );
     const updatedExif = pin.exif
       ? {
           ...pin.exif,
@@ -142,13 +171,14 @@ export function PinDetailSheet({
       title: title.trim() || pin.title,
       categoryId,
       comment: comment.trim() || undefined,
-      event: event.trim() || undefined,
+      tag: tag.trim() || undefined,
       location: location.trim() || undefined,
       url: url.trim() || undefined,
       videoUrl: videoUrl.trim() || undefined,
       exif: updatedExif,
       allowPhotoDownload,
       reaction,
+      thumbnailPhotoId,
     });
   };
 
@@ -186,6 +216,7 @@ export function PinDetailSheet({
         };
         const saved = await photoRepo.save(pin.id, blob, mimeType, photoExif, fileInfo);
         setPhotos((prev) => [...prev, saved]);
+        setPendingAddIds((prev) => [...prev, saved.id]);
       }
     } finally {
       setIsAddingPhoto(false);
@@ -235,7 +266,7 @@ export function PinDetailSheet({
           background: "rgba(0,0,0,0.15)",
         }}
         onClick={(e) => {
-          if (e.target === e.currentTarget) onClose();
+          if (e.target === e.currentTarget) handleClose();
         }}
       >
         <div
@@ -262,7 +293,7 @@ export function PinDetailSheet({
               {pin.title}の詳細
             </span>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               style={{
                 background: "none",
                 border: "none",
@@ -319,7 +350,7 @@ export function PinDetailSheet({
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
-                    border: "1.5px solid var(--border)",
+                    border: "2px solid var(--border)",
                     fontSize: 12,
                     outline: "none",
                     background: "var(--input-bg)",
@@ -424,6 +455,10 @@ export function PinDetailSheet({
                               borderRadius: 8,
                               display: "block",
                               cursor: "zoom-in",
+                              outline:
+                                (thumbnailPhotoId ?? visiblePhotos[0]?.id) === photo.id
+                                  ? "2px solid #f59e0b"
+                                  : "none",
                             }}
                           />
                           <button
@@ -449,22 +484,32 @@ export function PinDetailSheet({
                             ✕
                           </button>
                           <button
-                            onClick={() => onSplitPhoto(photo)}
+                            onClick={() =>
+                              setThumbnailPhotoId(
+                                (thumbnailPhotoId ?? visiblePhotos[0]?.id) === photo.id
+                                  ? undefined
+                                  : photo.id
+                              )
+                            }
+                            title="一覧のサムネイルに設定"
                             style={{
                               position: "absolute",
-                              top: 4,
+                              bottom: 4,
                               left: 4,
-                              background: "rgba(0,0,0,0.5)",
+                              background: "rgba(0,0,0,0.45)",
                               border: "none",
                               borderRadius: 4,
-                              padding: "2px 5px",
-                              color: "#fff",
-                              fontSize: 9,
+                              padding: "1px 4px",
+                              fontSize: 13,
                               cursor: "pointer",
-                              lineHeight: 1.4,
+                              lineHeight: 1,
+                              color:
+                                (thumbnailPhotoId ?? visiblePhotos[0]?.id) === photo.id
+                                  ? "#f59e0b"
+                                  : "rgba(255,255,255,0.6)",
                             }}
                           >
-                            分割
+                            {(thumbnailPhotoId ?? visiblePhotos[0]?.id) === photo.id ? "★" : "☆"}
                           </button>
                         </div>
                         {photo.exif?.takenAt && (
@@ -489,6 +534,25 @@ export function PinDetailSheet({
                             )}
                           </span>
                         )}
+                        <input
+                          type="text"
+                          value={photoComments.get(photo.id) ?? ""}
+                          onChange={(e) =>
+                            setPhotoComments((prev) => new Map(prev).set(photo.id, e.target.value))
+                          }
+                          placeholder="コメントを追加…"
+                          style={{
+                            width: 100,
+                            padding: "3px 6px",
+                            borderRadius: 5,
+                            border: "1px solid var(--border)",
+                            fontSize: 10,
+                            outline: "none",
+                            background: "var(--input-bg)",
+                            color: "var(--text-primary)",
+                            boxSizing: "border-box",
+                          }}
+                        />
                       </div>
                     );
                   })}
@@ -526,7 +590,7 @@ export function PinDetailSheet({
                   width: "100%",
                   padding: "10px 12px",
                   borderRadius: 8,
-                  border: "1.5px solid var(--border)",
+                  border: "2px solid var(--border)",
                   fontSize: 17,
                   outline: "none",
                   boxSizing: "border-box",
@@ -557,7 +621,7 @@ export function PinDetailSheet({
                   width: "100%",
                   padding: "10px 12px",
                   borderRadius: 8,
-                  border: "1.5px solid var(--border)",
+                  border: "2px solid var(--border)",
                   fontSize: 14,
                   outline: "none",
                   boxSizing: "border-box",
@@ -569,7 +633,7 @@ export function PinDetailSheet({
               />
             </div>
 
-            {/* イベント */}
+            {/* マイタグ */}
             <div>
               <label
                 style={{
@@ -579,23 +643,23 @@ export function PinDetailSheet({
                   marginBottom: 4,
                 }}
               >
-                イベント
+                マイタグ
               </label>
               <div style={{ position: "relative" }}>
                 <input
-                  value={event}
+                  value={tag}
                   onChange={(e) => {
-                    setEvent(e.target.value);
-                    setEventDropdownOpen(true);
+                    setTag(e.target.value);
+                    setTagDropdownOpen(true);
                   }}
-                  onFocus={() => setEventDropdownOpen(true)}
-                  onBlur={() => setTimeout(() => setEventDropdownOpen(false), 150)}
+                  onFocus={() => setTagDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setTagDropdownOpen(false), 150)}
                   placeholder="例：夏祭り、家族旅行、卒業式…"
                   style={{
                     width: "100%",
                     padding: "10px 12px",
                     borderRadius: 8,
-                    border: "1.5px solid var(--border)",
+                    border: "2px solid var(--border)",
                     fontSize: 14,
                     outline: "none",
                     boxSizing: "border-box",
@@ -603,7 +667,7 @@ export function PinDetailSheet({
                     color: "var(--text-primary)",
                   }}
                 />
-                {eventDropdownOpen && filteredEventKeywords.length > 0 && (
+                {tagDropdownOpen && filteredTagKeywords.length > 0 && (
                   <div
                     style={{
                       position: "absolute",
@@ -612,19 +676,19 @@ export function PinDetailSheet({
                       right: 0,
                       zIndex: 100,
                       background: "var(--bg-primary)",
-                      border: "1.5px solid var(--border)",
+                      border: "2px solid var(--border)",
                       borderRadius: 8,
                       maxHeight: 180,
                       overflowY: "auto",
                       boxShadow: "0 4px 12px rgba(0,0,0,.15)",
                     }}
                   >
-                    {filteredEventKeywords.map((kw) => (
+                    {filteredTagKeywords.map((kw) => (
                       <div
                         key={kw}
                         onMouseDown={() => {
-                          setEvent(kw);
-                          setEventDropdownOpen(false);
+                          setTag(kw);
+                          setTagDropdownOpen(false);
                         }}
                         style={{
                           padding: "10px 12px",
@@ -698,7 +762,7 @@ export function PinDetailSheet({
                       border:
                         reaction === opt.value
                           ? `2px solid ${opt.color}`
-                          : "1.5px solid var(--border)",
+                          : "2px solid var(--border)",
                       borderRadius: 10,
                       padding: "8px 4px",
                       fontSize: 13,
@@ -765,7 +829,7 @@ export function PinDetailSheet({
                         width: "100%",
                         padding: "10px 12px",
                         borderRadius: 8,
-                        border: "1.5px solid var(--border)",
+                        border: "2px solid var(--border)",
                         fontSize: 14,
                         outline: "none",
                         boxSizing: "border-box",
@@ -796,7 +860,7 @@ export function PinDetailSheet({
                           flex: 1,
                           padding: "10px 12px",
                           borderRadius: 8,
-                          border: "1.5px solid var(--border)",
+                          border: "2px solid var(--border)",
                           fontSize: 14,
                           outline: "none",
                           boxSizing: "border-box",
@@ -848,7 +912,7 @@ export function PinDetailSheet({
                           flex: 1,
                           padding: "10px 12px",
                           borderRadius: 8,
-                          border: "1.5px solid var(--border)",
+                          border: "2px solid var(--border)",
                           fontSize: 14,
                           outline: "none",
                           boxSizing: "border-box",
@@ -944,10 +1008,7 @@ export function PinDetailSheet({
             }}
           >
             <button
-              onClick={() => {
-                onFlyTo(pin);
-                onClose();
-              }}
+              onClick={handleClose}
               style={{
                 flex: 1,
                 background: "var(--bg-tertiary)",
@@ -957,27 +1018,24 @@ export function PinDetailSheet({
                 fontSize: 14,
                 cursor: "pointer",
                 color: "var(--text-primary)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
               }}
             >
-              <MapIcon size={15} />
-              地図で見る
+              閉じる
             </button>
             <button
               onClick={handleSave}
+              disabled={!isNew && !isDirty}
               style={{
                 flex: 2,
-                background: currentCategory.markerColor,
+                background: isNew || isDirty ? currentCategory.markerColor : "var(--bg-tertiary)",
                 border: "none",
                 borderRadius: 10,
                 padding: "12px 0",
                 fontSize: 15,
                 fontWeight: 700,
-                cursor: "pointer",
-                color: "#fff",
+                cursor: isNew || isDirty ? "pointer" : "default",
+                color: isNew || isDirty ? "#fff" : "var(--text-muted)",
+                transition: "background 0.15s, color 0.15s",
               }}
             >
               保存
@@ -990,6 +1048,7 @@ export function PinDetailSheet({
           const lbPhoto = visiblePhotos[lightboxIndex];
           const lbUrl = lbPhoto ? photoUrls.get(lbPhoto.id) : undefined;
           const lbExif = lbPhoto?.exif;
+          const lbComment = lbPhoto ? photoComments.get(lbPhoto.id) || undefined : undefined;
           return createPortal(
             <div
               onPointerDown={(e) => {
@@ -1171,7 +1230,7 @@ export function PinDetailSheet({
                 <div
                   style={{
                     position: "absolute",
-                    bottom: lbExif ? 80 : 24,
+                    bottom: lbExif || lbComment ? 80 : 24,
                     left: 0,
                     right: 0,
                     textAlign: "center",
@@ -1183,7 +1242,7 @@ export function PinDetailSheet({
                   {lightboxIndex + 1} / {visiblePhotos.length}
                 </div>
               )}
-              {lbExif && (
+              {(lbComment || lbExif) && (
                 <div
                   style={{
                     position: "absolute",
@@ -1198,15 +1257,35 @@ export function PinDetailSheet({
                     pointerEvents: "none",
                   }}
                 >
-                  {(lbExif.cameraMake || lbExif.cameraModel) && (
-                    <span>{[lbExif.cameraMake, lbExif.cameraModel].filter(Boolean).join(" ")}</span>
+                  {lbComment && (
+                    <span
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 500,
+                        color: "rgba(255,255,255,0.95)",
+                        marginBottom: lbExif ? 4 : 0,
+                      }}
+                    >
+                      {lbComment}
+                    </span>
                   )}
-                  {lbExif.fNumber != null && <span>f/{lbExif.fNumber}</span>}
-                  {lbExif.exposureTime != null && <span>{formatShutter(lbExif.exposureTime)}</span>}
-                  {lbExif.focalLength != null && <span>{lbExif.focalLength}mm</span>}
-                  {lbExif.iso != null && <span>ISO {lbExif.iso}</span>}
-                  {lbExif.takenAt && (
-                    <span>{new Date(lbExif.takenAt).toLocaleString("ja-JP")}</span>
+                  {lbExif && (
+                    <>
+                      {(lbExif.cameraMake || lbExif.cameraModel) && (
+                        <span>
+                          {[lbExif.cameraMake, lbExif.cameraModel].filter(Boolean).join(" ")}
+                        </span>
+                      )}
+                      {lbExif.fNumber != null && <span>f/{lbExif.fNumber}</span>}
+                      {lbExif.exposureTime != null && (
+                        <span>{formatShutter(lbExif.exposureTime)}</span>
+                      )}
+                      {lbExif.focalLength != null && <span>{lbExif.focalLength}mm</span>}
+                      {lbExif.iso != null && <span>ISO {lbExif.iso}</span>}
+                      {lbExif.takenAt && (
+                        <span>{new Date(lbExif.takenAt).toLocaleString("ja-JP")}</span>
+                      )}
+                    </>
                   )}
                 </div>
               )}

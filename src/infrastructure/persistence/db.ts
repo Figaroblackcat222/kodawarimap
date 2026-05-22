@@ -7,7 +7,7 @@ interface PinRecord {
   title: string;
   categoryId?: string;
   comment?: string;
-  event?: string;
+  tag?: string;
   location?: string;
   url?: string;
   videoUrl?: string;
@@ -22,6 +22,7 @@ interface PinRecord {
   iso?: number;
   createdAt: Date;
   reaction?: string;
+  thumbnailPhotoId?: string;
   deletedAt?: Date;
 }
 
@@ -31,6 +32,7 @@ interface PhotoRecord {
   blob: Blob;
   mimeType: string;
   createdAt: Date;
+  comment?: string;
   exifTakenAt?: Date;
   exifTakenAtEstimated?: boolean;
   exifCameraMake?: string;
@@ -71,6 +73,22 @@ class KodawarimapDB extends Dexie {
       pins: "id, createdAt, deletedAt, categoryId",
       photos: "id, pinId, createdAt",
     });
+    this.version(10)
+      .stores({
+        pins: "id, createdAt, deletedAt, categoryId",
+        photos: "id, pinId, createdAt",
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table("pins")
+          .toCollection()
+          .modify((pin) => {
+            if (pin.event !== undefined) {
+              pin.tag = pin.event;
+              delete pin.event;
+            }
+          });
+      });
   }
 }
 
