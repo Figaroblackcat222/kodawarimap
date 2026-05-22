@@ -33,3 +33,9 @@ pnpm-debug.log*
 
 # 大容量データ（ローカル開発用のPMTiles等はコミットしない）
 *.pmtiles
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
