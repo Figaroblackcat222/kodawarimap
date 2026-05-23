@@ -78,3 +78,9 @@ body {
   animation: spin 0.8s linear infinite;
   display: inline-block;
 }
+
+/* ティッカー(height:40px)直下からナビゲーションコントロールを開始 */
+.maplibregl-ctrl-top-left {
+  top: 48px !important;
+  z-index: 11 !important;
+}

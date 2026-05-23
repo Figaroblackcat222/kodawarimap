@@ -34,8 +34,8 @@ export function CurrentLocationButton({ onLocate, onError }: Props) {
       disabled={isLocating}
       style={{
         position: "absolute",
-        top: 16,
-        right: 96,
+        top: 160,
+        left: 8,
         zIndex: 10,
         background: "#fff",
         border: "none",

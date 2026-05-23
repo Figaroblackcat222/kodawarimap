@@ -11,6 +11,7 @@ import {
   Smile,
   Tag,
   Calendar,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import type { Pin, PinReaction } from "@domain/entities/pin";
@@ -25,13 +26,22 @@ const REACTION_EMOJI_MAP: Record<string, string> = {
 };
 
 const MIN_HEIGHT = 44;
-const MAX_HEIGHT_RATIO = 0.8;
+const MAX_HEIGHT_RATIO = 0.85;
 
 function snapHeights() {
+  const h = window.innerHeight;
   return [
     MIN_HEIGHT,
-    Math.round(window.innerHeight * 0.4),
-    Math.round(window.innerHeight * MAX_HEIGHT_RATIO),
+    Math.round(h * 0.25),
+    Math.round(h * 0.3),
+    Math.round(h * 0.35),
+    Math.round(h * 0.4),
+    Math.round(h * 0.45),
+    Math.round(h * 0.5),
+    Math.round(h * 0.55),
+    Math.round(h * 0.6),
+    Math.round(h * 0.65),
+    Math.round(h * MAX_HEIGHT_RATIO),
   ];
 }
 
@@ -52,6 +62,7 @@ interface Props {
   trashRetentionDays: number;
   sortOrder: "date" | "title";
   listScope: "all" | "visible";
+  onListScopeChange: (v: "all" | "visible") => void;
   mapBounds: MapBounds | null;
   tagKeywords: string[];
   onFilteredPinsChange?: (pins: Pin[]) => void;
@@ -157,6 +168,7 @@ export function PinListSheet({
   trashRetentionDays,
   sortOrder,
   listScope,
+  onListScopeChange,
   mapBounds,
   tagKeywords,
   onFilteredPinsChange,
@@ -173,16 +185,18 @@ export function PinListSheet({
   const [takenFrom, setTakenFrom] = useState("");
   const [takenTo, setTakenTo] = useState("");
   const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [deleteConfirm, setDeleteConfirm] = useState<
+    { type: "all" } | { type: "one"; pin: Pin } | null
+  >(null);
 
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
   const handleCollapseToggle = useCallback(() => {
-    const snaps = snapHeights();
-    const idx = snaps.reduce(
-      (best, s, i) => (Math.abs(s - sheetHeight) < Math.abs(snaps[best] - sheetHeight) ? i : best),
-      0
-    );
-    onSheetHeightChange(snaps[(idx + 1) % snaps.length]);
+    if (sheetHeight <= MIN_HEIGHT) {
+      onSheetHeightChange(Math.round(window.innerHeight * 0.65));
+    } else {
+      onSheetHeightChange(MIN_HEIGHT);
+    }
   }, [sheetHeight, onSheetHeightChange]);
 
   const handlePointerDown = useCallback(
@@ -341,712 +355,845 @@ export function PinListSheet({
   const isExpanded = sheetHeight > MIN_HEIGHT;
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 20,
-        background: "var(--bg-primary)",
-        borderRadius: "16px 16px 0 0",
-        boxShadow: "0 -4px 20px var(--shadow)",
-        height: sheetHeight,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-      }}
-    >
-      {/* ドラッグハンドル */}
+    <>
       <div
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
         style={{
-          flexShrink: 0,
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 20,
+          background: "var(--bg-primary)",
+          borderRadius: "16px 16px 0 0",
+          boxShadow: "0 -4px 20px var(--shadow)",
+          height: sheetHeight,
           display: "flex",
           flexDirection: "column",
-          cursor: "ns-resize",
-          touchAction: "none",
-          userSelect: "none",
+          overflow: "hidden",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "center", paddingTop: 8 }}>
-          <span
-            style={{ width: 40, height: 5, borderRadius: 3, background: "#999", display: "block" }}
-          />
-        </div>
+        {/* ドラッグハンドル */}
         <div
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           style={{
-            position: "relative",
+            flexShrink: 0,
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "4px 16px 8px",
-            fontSize: 13,
-            color: "var(--text-secondary)",
+            flexDirection: "column",
+            cursor: "ns-resize",
+            touchAction: "none",
+            userSelect: "none",
           }}
         >
-          <span>{showTrash ? `ゴミ箱 ${deletedPins.length}件` : `ピン ${pins.length}件`}</span>
-          <button
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={handleCollapseToggle}
-            style={{
-              position: "absolute",
-              right: 8,
-              background: "none",
-              border: "none",
-              padding: 4,
-              cursor: "pointer",
-              color: "var(--text-secondary)",
-              display: "flex",
-              alignItems: "center",
-            }}
-            title="表示切替"
-          >
-            {isExpanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-          </button>
-        </div>
-      </div>
-
-      {isExpanded && (
-        <>
-          {/* 検索ヘッダー（固定） */}
+          <div style={{ display: "flex", justifyContent: "center", paddingTop: 8 }}>
+            <span
+              style={{
+                width: 40,
+                height: 5,
+                borderRadius: 3,
+                background: "#999",
+                display: "block",
+              }}
+            />
+          </div>
           <div
             style={{
-              flexShrink: 0,
-              padding: "0 12px 8px",
-              borderBottom: "2px solid var(--border)",
-              boxShadow: "0 2px 8px var(--shadow)",
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "4px 16px 8px",
+              fontSize: 13,
+              color: "var(--text-secondary)",
             }}
           >
-            {/* タブ */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <button
-                onClick={() => {
-                  setShowTrash(false);
-                  setKeyword("");
-                }}
-                style={{
-                  flex: 1,
-                  padding: "6px 0",
-                  border: "none",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  background: !showTrash ? "var(--text-primary)" : "var(--bg-tertiary)",
-                  color: !showTrash ? "var(--bg-primary)" : "var(--text-secondary)",
-                  fontWeight: !showTrash ? 700 : 400,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 4,
-                }}
-              >
-                <List size={13} />
-                {isDesktop && " ピン一覧"}
-              </button>
-              <button
-                onClick={() => {
-                  setShowTrash(true);
-                  setKeyword("");
-                }}
-                style={{
-                  flex: 1,
-                  padding: "6px 0",
-                  border: "none",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  background: showTrash ? "var(--text-primary)" : "var(--bg-tertiary)",
-                  color: showTrash ? "var(--bg-primary)" : "var(--text-secondary)",
-                  fontWeight: showTrash ? 700 : 400,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 4,
-                }}
-              >
-                <Trash2 size={13} />
-                {isDesktop && " ゴミ箱"}
-                {deletedPins.length > 0 && ` (${deletedPins.length})`}
-              </button>
-            </div>
-
             {!showTrash && (
-              <div>
-                {/* キーワード検索 + フィルターリセット + 絞り込みトグル */}
-                <div
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                style={{
+                  position: "absolute",
+                  left: 8,
+                  display: "flex",
+                  border: "1px solid var(--border)",
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  fontSize: 11,
+                }}
+              >
+                <button
+                  onClick={() => onListScopeChange("all")}
                   style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    marginBottom: isFilterBarOpen ? 8 : 0,
+                    padding: "2px 8px",
+                    border: "none",
+                    background: listScope === "all" ? "#3b82f6" : "var(--bg-primary)",
+                    color: listScope === "all" ? "#fff" : "var(--text-secondary)",
+                    cursor: "pointer",
+                    fontSize: 11,
                   }}
                 >
-                  <div style={{ position: "relative", flex: 1 }}>
-                    <input
-                      type="text"
-                      placeholder="キーワードで絞り込み（スペース区切りでAND）"
-                      value={keyword}
-                      onChange={(e) => setKeyword(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: keyword ? "8px 32px 8px 12px" : "8px 12px",
-                        borderRadius: 8,
-                        border: "1.5px solid var(--border)",
-                        fontSize: 14,
-                        outline: "none",
-                        boxSizing: "border-box",
-                        background: "var(--input-bg)",
-                        color: "var(--text-primary)",
-                      }}
-                    />
-                    {keyword && (
-                      <button
-                        onClick={() => setKeyword("")}
+                  全件
+                </button>
+                <button
+                  onClick={() => onListScopeChange("visible")}
+                  style={{
+                    padding: "2px 8px",
+                    border: "none",
+                    background: listScope === "visible" ? "#3b82f6" : "var(--bg-primary)",
+                    color: listScope === "visible" ? "#fff" : "var(--text-secondary)",
+                    cursor: "pointer",
+                    fontSize: 11,
+                  }}
+                >
+                  表示範囲
+                </button>
+              </div>
+            )}
+            <span>
+              {showTrash ? `ゴミ箱 ${deletedPins.length}件` : `ピン ${activePins.length}件`}
+            </span>
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={handleCollapseToggle}
+              style={{
+                position: "absolute",
+                right: 8,
+                background: "none",
+                border: "none",
+                padding: 4,
+                cursor: "pointer",
+                color: "var(--text-secondary)",
+                display: "flex",
+                alignItems: "center",
+              }}
+              title="表示切替"
+            >
+              {isExpanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+            </button>
+          </div>
+        </div>
+
+        {isExpanded && (
+          <>
+            {/* 検索ヘッダー（固定） */}
+            <div
+              style={{
+                flexShrink: 0,
+                padding: "0 12px 8px",
+                borderBottom: "2px solid var(--border)",
+                boxShadow: "0 2px 8px var(--shadow)",
+              }}
+            >
+              {/* タブ */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <button
+                  onClick={() => {
+                    setShowTrash(false);
+                    setKeyword("");
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "6px 0",
+                    border: "none",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    cursor: "pointer",
+                    background: !showTrash ? "var(--text-primary)" : "var(--bg-tertiary)",
+                    color: !showTrash ? "var(--bg-primary)" : "var(--text-secondary)",
+                    fontWeight: !showTrash ? 700 : 400,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 4,
+                  }}
+                >
+                  <List size={13} />
+                  {isDesktop && " ピン一覧"}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowTrash(true);
+                    setKeyword("");
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "6px 0",
+                    border: "none",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    cursor: "pointer",
+                    background: showTrash ? "var(--text-primary)" : "var(--bg-tertiary)",
+                    color: showTrash ? "var(--bg-primary)" : "var(--text-secondary)",
+                    fontWeight: showTrash ? 700 : 400,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 4,
+                  }}
+                >
+                  <Trash2 size={13} />
+                  {isDesktop && " ゴミ箱"}
+                  {deletedPins.length > 0 && ` (${deletedPins.length})`}
+                </button>
+              </div>
+
+              {!showTrash && (
+                <div>
+                  {/* キーワード検索 + フィルターリセット + 絞り込みトグル */}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
+                      marginBottom: isFilterBarOpen ? 8 : 0,
+                    }}
+                  >
+                    <div style={{ position: "relative", flex: 1 }}>
+                      <input
+                        type="text"
+                        placeholder="キーワードで絞り込み（スペース区切りでAND）"
+                        value={keyword}
+                        onChange={(e) => setKeyword(e.target.value)}
                         style={{
-                          position: "absolute",
-                          right: 8,
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          background: "none",
-                          border: "none",
-                          color: "var(--text-muted)",
-                          cursor: "pointer",
-                          padding: 0,
+                          width: "100%",
+                          padding: keyword ? "8px 32px 8px 12px" : "8px 12px",
+                          borderRadius: 8,
+                          border: "1.5px solid var(--border)",
+                          fontSize: 14,
+                          outline: "none",
+                          boxSizing: "border-box",
+                          background: "var(--input-bg)",
+                          color: "var(--text-primary)",
+                        }}
+                      />
+                      {keyword && (
+                        <button
+                          onClick={() => setKeyword("")}
+                          style={{
+                            position: "absolute",
+                            right: 8,
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            background: "none",
+                            border: "none",
+                            color: "var(--text-muted)",
+                            cursor: "pointer",
+                            padding: 0,
+                            display: "flex",
+                            alignItems: "center",
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                    {(categoryFilter !== "all" ||
+                      reactionFilter !== "all" ||
+                      tagFilter.length > 0 ||
+                      takenFrom ||
+                      takenTo) && (
+                      <button
+                        onClick={() => {
+                          setCategoryFilter("all");
+                          setReactionFilter("all");
+                          setTagFilter([]);
+                          setTakenFrom("");
+                          setTakenTo("");
+                          setOpenSection(null);
+                        }}
+                        title="フィルターをリセット"
+                        style={{
+                          flexShrink: 0,
                           display: "flex",
                           alignItems: "center",
+                          padding: "8px 10px",
+                          border: "1.5px solid #ef4444",
+                          borderRadius: 8,
+                          cursor: "pointer",
+                          background: "none",
+                          color: "#ef4444",
                         }}
                       >
-                        <X size={14} />
+                        <FilterX size={15} />
                       </button>
                     )}
-                  </div>
-                  {(categoryFilter !== "all" ||
-                    reactionFilter !== "all" ||
-                    tagFilter.length > 0 ||
-                    takenFrom ||
-                    takenTo) && (
                     <button
                       onClick={() => {
-                        setCategoryFilter("all");
-                        setReactionFilter("all");
-                        setTagFilter([]);
-                        setTakenFrom("");
-                        setTakenTo("");
-                        setOpenSection(null);
+                        const next = !isFilterBarOpen;
+                        setIsFilterBarOpen(next);
+                        if (!next) setOpenSection(null);
                       }}
-                      title="フィルターをリセット"
                       style={{
                         flexShrink: 0,
                         display: "flex",
                         alignItems: "center",
+                        gap: 4,
                         padding: "8px 10px",
-                        border: "1.5px solid #ef4444",
+                        border: "1.5px solid var(--border)",
                         borderRadius: 8,
+                        fontSize: 12,
                         cursor: "pointer",
-                        background: "none",
-                        color: "#ef4444",
+                        background: isFilterBarOpen ? "var(--text-primary)" : "var(--bg-primary)",
+                        color: isFilterBarOpen ? "var(--bg-primary)" : "var(--text-secondary)",
+                        boxShadow: isFilterBarOpen ? "none" : "var(--btn-shadow)",
+                        whiteSpace: "nowrap",
                       }}
                     >
-                      <FilterX size={15} />
+                      <SlidersHorizontal size={13} />
+                      絞り込み
                     </button>
+                  </div>
+
+                  {/* フィルターセクションボタン（絞り込みバー展開時のみ表示） */}
+                  {isFilterBarOpen && (
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <SectionFilterButton
+                        label="カテゴリー"
+                        active={openSection === "category"}
+                        hasFilter={categoryFilter !== "all"}
+                        onClick={() =>
+                          setOpenSection((s) => (s === "category" ? null : "category"))
+                        }
+                        color="#3b82f6"
+                        icon={LayoutGrid}
+                      />
+                      <SectionFilterButton
+                        label="リアクション"
+                        active={openSection === "reaction"}
+                        hasFilter={reactionFilter !== "all"}
+                        onClick={() =>
+                          setOpenSection((s) => (s === "reaction" ? null : "reaction"))
+                        }
+                        color="#22c55e"
+                        icon={Smile}
+                      />
+                      <SectionFilterButton
+                        label="マイタグ"
+                        active={openSection === "tag"}
+                        hasFilter={tagFilter.length > 0}
+                        onClick={() => setOpenSection((s) => (s === "tag" ? null : "tag"))}
+                        color="#8b5cf6"
+                        icon={Tag}
+                      />
+                      <SectionFilterButton
+                        label="撮影日"
+                        active={openSection === "date"}
+                        hasFilter={!!(takenFrom || takenTo)}
+                        onClick={() => setOpenSection((s) => (s === "date" ? null : "date"))}
+                        color="#f59e0b"
+                        icon={Calendar}
+                      />
+                    </div>
                   )}
+
+                  {/* インライン展開エリア */}
+                  {openSection !== null && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        paddingTop: 8,
+                        borderTop: "1px solid var(--border-light)",
+                      }}
+                    >
+                      {openSection === "category" && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          <FilterPill
+                            label="すべて"
+                            active={categoryFilter === "all"}
+                            color="#1a1a2e"
+                            onClick={() => setCategoryFilter("all")}
+                          />
+                          {PRESET_CATEGORIES.map((cat) => (
+                            <FilterPill
+                              key={cat.id}
+                              label={`${cat.emoji} ${cat.name}`}
+                              active={categoryFilter === cat.id}
+                              color={cat.markerColor}
+                              onClick={() => setCategoryFilter(cat.id)}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {openSection === "reaction" && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          <FilterPill
+                            label="すべて"
+                            active={reactionFilter === "all"}
+                            color="#6b7280"
+                            onClick={() => setReactionFilter("all")}
+                          />
+                          <FilterPill
+                            label="😊 また行きたい"
+                            active={reactionFilter === "want_to_revisit"}
+                            color="#22c55e"
+                            onClick={() => setReactionFilter("want_to_revisit")}
+                          />
+                          <FilterPill
+                            label="😐 一回でいいかな"
+                            active={reactionFilter === "once_was_enough"}
+                            color="#f59e0b"
+                            onClick={() => setReactionFilter("once_was_enough")}
+                          />
+                          <FilterPill
+                            label="😩 二度と行かない"
+                            active={reactionFilter === "never_again"}
+                            color="#ef4444"
+                            onClick={() => setReactionFilter("never_again")}
+                          />
+                          <FilterPill
+                            label="未設定"
+                            active={reactionFilter === "none"}
+                            color="#9ca3af"
+                            onClick={() => setReactionFilter("none")}
+                          />
+                        </div>
+                      )}
+
+                      {openSection === "tag" && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {tagKeywords.length === 0 ? (
+                            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                              マイタグがまだ記録されていません
+                            </p>
+                          ) : (
+                            tagKeywords.map((kw) => (
+                              <FilterPill
+                                key={kw}
+                                label={kw}
+                                active={tagFilter.includes(kw)}
+                                color="#8b5cf6"
+                                onClick={() =>
+                                  setTagFilter((f) =>
+                                    f.includes(kw) ? f.filter((x) => x !== kw) : [...f, kw]
+                                  )
+                                }
+                              />
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {openSection === "date" && (
+                        <div>
+                          <div
+                            style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}
+                          >
+                            {(["all", "today", "week", "month", "year"] as const).map((preset) => {
+                              const now = new Date();
+                              const todayStr = toLocalDateStr(now);
+                              const weekStart = toLocalDateStr(
+                                new Date(
+                                  now.getFullYear(),
+                                  now.getMonth(),
+                                  now.getDate() - now.getDay()
+                                )
+                              );
+                              const monthStart = toLocalDateStr(
+                                new Date(now.getFullYear(), now.getMonth(), 1)
+                              );
+                              const yearStart = toLocalDateStr(new Date(now.getFullYear(), 0, 1));
+                              const isActive =
+                                preset === "all"
+                                  ? !takenFrom && !takenTo
+                                  : preset === "today"
+                                    ? takenFrom === todayStr && takenTo === todayStr
+                                    : preset === "week"
+                                      ? takenFrom === weekStart && !takenTo
+                                      : preset === "month"
+                                        ? takenFrom === monthStart && !takenTo
+                                        : takenFrom === yearStart && !takenTo;
+                              return (
+                                <FilterPill
+                                  key={preset}
+                                  label={
+                                    preset === "all"
+                                      ? "全期間"
+                                      : preset === "today"
+                                        ? "今日"
+                                        : preset === "week"
+                                          ? "今週"
+                                          : preset === "month"
+                                            ? "今月"
+                                            : "今年"
+                                  }
+                                  active={isActive}
+                                  color="#6366f1"
+                                  onClick={() => applyDatePreset(preset, setTakenFrom, setTakenTo)}
+                                />
+                              );
+                            })}
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 11, color: "#999", flexShrink: 0 }}>期間</span>
+                            <input
+                              type="date"
+                              value={takenFrom}
+                              onChange={(e) => setTakenFrom(e.target.value)}
+                              style={{
+                                padding: "4px 6px",
+                                borderRadius: 6,
+                                border: "1.5px solid var(--border)",
+                                fontSize: 12,
+                                outline: "none",
+                                background: "var(--input-bg)",
+                                color: "var(--text-primary)",
+                              }}
+                            />
+                            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>〜</span>
+                            <input
+                              type="date"
+                              value={takenTo}
+                              onChange={(e) => setTakenTo(e.target.value)}
+                              style={{
+                                padding: "4px 6px",
+                                borderRadius: 6,
+                                border: "1.5px solid var(--border)",
+                                fontSize: 12,
+                                outline: "none",
+                                background: "var(--input-bg)",
+                                color: "var(--text-primary)",
+                              }}
+                            />
+                            {(takenFrom || takenTo) && (
+                              <button
+                                onClick={() => {
+                                  setTakenFrom("");
+                                  setTakenTo("");
+                                }}
+                                style={{
+                                  flexShrink: 0,
+                                  background: "none",
+                                  border: "none",
+                                  color: "#aaa",
+                                  fontSize: 14,
+                                  cursor: "pointer",
+                                  padding: "0 2px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                }}
+                              >
+                                <X size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {showTrash && (
+              <div
+                style={{
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "6px 12px",
+                }}
+              >
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                  削除後{trashRetentionDays}日で自動削除されます
+                </p>
+                {deletedPins.length > 0 && (
                   <button
-                    onClick={() => {
-                      const next = !isFilterBarOpen;
-                      setIsFilterBarOpen(next);
-                      if (!next) setOpenSection(null);
-                    }}
+                    onClick={() => setDeleteConfirm({ type: "all" })}
                     style={{
-                      flexShrink: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "8px 10px",
-                      border: "1.5px solid var(--border)",
-                      borderRadius: 8,
                       fontSize: 12,
+                      color: "#ef4444",
+                      background: "none",
+                      border: "1px solid #ef4444",
+                      borderRadius: 6,
+                      padding: "4px 10px",
                       cursor: "pointer",
-                      background: isFilterBarOpen ? "var(--text-primary)" : "var(--bg-primary)",
-                      color: isFilterBarOpen ? "var(--bg-primary)" : "var(--text-secondary)",
-                      boxShadow: isFilterBarOpen ? "none" : "var(--btn-shadow)",
                       whiteSpace: "nowrap",
                     }}
                   >
-                    <SlidersHorizontal size={13} />
-                    絞り込み
+                    全削除
                   </button>
-                </div>
-
-                {/* フィルターセクションボタン（絞り込みバー展開時のみ表示） */}
-                {isFilterBarOpen && (
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <SectionFilterButton
-                      label="カテゴリー"
-                      active={openSection === "category"}
-                      hasFilter={categoryFilter !== "all"}
-                      onClick={() => setOpenSection((s) => (s === "category" ? null : "category"))}
-                      color="#3b82f6"
-                      icon={LayoutGrid}
-                    />
-                    <SectionFilterButton
-                      label="リアクション"
-                      active={openSection === "reaction"}
-                      hasFilter={reactionFilter !== "all"}
-                      onClick={() => setOpenSection((s) => (s === "reaction" ? null : "reaction"))}
-                      color="#22c55e"
-                      icon={Smile}
-                    />
-                    <SectionFilterButton
-                      label="マイタグ"
-                      active={openSection === "tag"}
-                      hasFilter={tagFilter.length > 0}
-                      onClick={() => setOpenSection((s) => (s === "tag" ? null : "tag"))}
-                      color="#8b5cf6"
-                      icon={Tag}
-                    />
-                    <SectionFilterButton
-                      label="撮影日"
-                      active={openSection === "date"}
-                      hasFilter={!!(takenFrom || takenTo)}
-                      onClick={() => setOpenSection((s) => (s === "date" ? null : "date"))}
-                      color="#f59e0b"
-                      icon={Calendar}
-                    />
-                  </div>
-                )}
-
-                {/* インライン展開エリア */}
-                {openSection !== null && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      paddingTop: 8,
-                      borderTop: "1px solid var(--border-light)",
-                    }}
-                  >
-                    {openSection === "category" && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        <FilterPill
-                          label="すべて"
-                          active={categoryFilter === "all"}
-                          color="#1a1a2e"
-                          onClick={() => setCategoryFilter("all")}
-                        />
-                        {PRESET_CATEGORIES.map((cat) => (
-                          <FilterPill
-                            key={cat.id}
-                            label={`${cat.emoji} ${cat.name}`}
-                            active={categoryFilter === cat.id}
-                            color={cat.markerColor}
-                            onClick={() => setCategoryFilter(cat.id)}
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    {openSection === "reaction" && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        <FilterPill
-                          label="すべて"
-                          active={reactionFilter === "all"}
-                          color="#6b7280"
-                          onClick={() => setReactionFilter("all")}
-                        />
-                        <FilterPill
-                          label="😊 また行きたい"
-                          active={reactionFilter === "want_to_revisit"}
-                          color="#22c55e"
-                          onClick={() => setReactionFilter("want_to_revisit")}
-                        />
-                        <FilterPill
-                          label="😐 一回でいいかな"
-                          active={reactionFilter === "once_was_enough"}
-                          color="#f59e0b"
-                          onClick={() => setReactionFilter("once_was_enough")}
-                        />
-                        <FilterPill
-                          label="😩 二度と行かない"
-                          active={reactionFilter === "never_again"}
-                          color="#ef4444"
-                          onClick={() => setReactionFilter("never_again")}
-                        />
-                        <FilterPill
-                          label="未設定"
-                          active={reactionFilter === "none"}
-                          color="#9ca3af"
-                          onClick={() => setReactionFilter("none")}
-                        />
-                      </div>
-                    )}
-
-                    {openSection === "tag" && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {tagKeywords.length === 0 ? (
-                          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-                            マイタグがまだ記録されていません
-                          </p>
-                        ) : (
-                          tagKeywords.map((kw) => (
-                            <FilterPill
-                              key={kw}
-                              label={kw}
-                              active={tagFilter.includes(kw)}
-                              color="#8b5cf6"
-                              onClick={() =>
-                                setTagFilter((f) =>
-                                  f.includes(kw) ? f.filter((x) => x !== kw) : [...f, kw]
-                                )
-                              }
-                            />
-                          ))
-                        )}
-                      </div>
-                    )}
-
-                    {openSection === "date" && (
-                      <div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                          {(["all", "today", "week", "month", "year"] as const).map((preset) => {
-                            const now = new Date();
-                            const todayStr = toLocalDateStr(now);
-                            const weekStart = toLocalDateStr(
-                              new Date(
-                                now.getFullYear(),
-                                now.getMonth(),
-                                now.getDate() - now.getDay()
-                              )
-                            );
-                            const monthStart = toLocalDateStr(
-                              new Date(now.getFullYear(), now.getMonth(), 1)
-                            );
-                            const yearStart = toLocalDateStr(new Date(now.getFullYear(), 0, 1));
-                            const isActive =
-                              preset === "all"
-                                ? !takenFrom && !takenTo
-                                : preset === "today"
-                                  ? takenFrom === todayStr && takenTo === todayStr
-                                  : preset === "week"
-                                    ? takenFrom === weekStart && !takenTo
-                                    : preset === "month"
-                                      ? takenFrom === monthStart && !takenTo
-                                      : takenFrom === yearStart && !takenTo;
-                            return (
-                              <FilterPill
-                                key={preset}
-                                label={
-                                  preset === "all"
-                                    ? "全期間"
-                                    : preset === "today"
-                                      ? "今日"
-                                      : preset === "week"
-                                        ? "今週"
-                                        : preset === "month"
-                                          ? "今月"
-                                          : "今年"
-                                }
-                                active={isActive}
-                                color="#6366f1"
-                                onClick={() => applyDatePreset(preset, setTakenFrom, setTakenTo)}
-                              />
-                            );
-                          })}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 11, color: "#999", flexShrink: 0 }}>期間</span>
-                          <input
-                            type="date"
-                            value={takenFrom}
-                            onChange={(e) => setTakenFrom(e.target.value)}
-                            style={{
-                              padding: "4px 6px",
-                              borderRadius: 6,
-                              border: "1.5px solid var(--border)",
-                              fontSize: 12,
-                              outline: "none",
-                              background: "var(--input-bg)",
-                              color: "var(--text-primary)",
-                            }}
-                          />
-                          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>〜</span>
-                          <input
-                            type="date"
-                            value={takenTo}
-                            onChange={(e) => setTakenTo(e.target.value)}
-                            style={{
-                              padding: "4px 6px",
-                              borderRadius: 6,
-                              border: "1.5px solid var(--border)",
-                              fontSize: 12,
-                              outline: "none",
-                              background: "var(--input-bg)",
-                              color: "var(--text-primary)",
-                            }}
-                          />
-                          {(takenFrom || takenTo) && (
-                            <button
-                              onClick={() => {
-                                setTakenFrom("");
-                                setTakenTo("");
-                              }}
-                              style={{
-                                flexShrink: 0,
-                                background: "none",
-                                border: "none",
-                                color: "#aaa",
-                                fontSize: 14,
-                                cursor: "pointer",
-                                padding: "0 2px",
-                                display: "flex",
-                                alignItems: "center",
-                              }}
-                            >
-                              <X size={14} />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 )}
               </div>
             )}
-          </div>
 
-          {showTrash && (
-            <div
-              style={{
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "6px 12px",
-              }}
-            >
-              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-                削除後{trashRetentionDays}日で自動削除されます
-              </p>
-              {deletedPins.length > 0 && (
-                <button
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `ゴミ箱の${deletedPins.length}件を全て完全削除しますか？\nこの操作は元に戻せません。`
-                      )
-                    ) {
-                      onHardDeleteAll();
-                    }
-                  }}
+            {/* スクロール可能なリスト */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 12px" }}>
+              {currentList.length === 0 ? (
+                <p
                   style={{
-                    fontSize: 12,
-                    color: "#ef4444",
-                    background: "none",
-                    border: "1px solid #ef4444",
-                    borderRadius: 6,
-                    padding: "4px 10px",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
+                    textAlign: "center",
+                    color: "var(--text-muted)",
+                    fontSize: 13,
+                    marginTop: 24,
                   }}
                 >
-                  全削除
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* スクロール可能なリスト */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 12px" }}>
-            {currentList.length === 0 ? (
-              <p
-                style={{
-                  textAlign: "center",
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  marginTop: 24,
-                }}
-              >
-                {showTrash ? "ゴミ箱は空です" : "該当するピンがありません"}
-              </p>
-            ) : (
-              currentList.map((pin) => {
-                const cat = PRESET_CATEGORIES.find((c) => c.id === (pin.categoryId ?? "general"));
-                return (
-                  <div
-                    key={pin.id}
-                    style={{
-                      borderBottom: "1px solid var(--border-light)",
-                      padding: "10px 4px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <PinThumb pin={pin} photoRepo={photoRepo} />
-                    <button
-                      onClick={() => {
-                        if (!showTrash) {
-                          onPinDetail(pin);
-                          onPinFlyTo(pin);
-                        }
-                      }}
-                      disabled={showTrash}
+                  {showTrash ? "ゴミ箱は空です" : "該当するピンがありません"}
+                </p>
+              ) : (
+                currentList.map((pin) => {
+                  const cat = PRESET_CATEGORIES.find((c) => c.id === (pin.categoryId ?? "general"));
+                  return (
+                    <div
+                      key={pin.id}
                       style={{
-                        flex: 1,
-                        textAlign: "left",
-                        background: "none",
-                        border: "none",
-                        cursor: showTrash ? "default" : "pointer",
-                        padding: 0,
+                        borderBottom: "1px solid var(--border-light)",
+                        padding: "10px 4px",
                         display: "flex",
-                        flexDirection: "column",
-                        gap: 2,
-                        minWidth: 0,
+                        alignItems: "center",
+                        gap: 8,
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        {cat && (
-                          <span style={{ fontSize: 16, lineHeight: 1, flexShrink: 0 }}>
-                            {cat.emoji}
-                          </span>
-                        )}
-                        <span
-                          style={{
-                            fontSize: 14,
-                            fontWeight: 600,
-                            color: showTrash ? "var(--text-muted)" : "var(--text-primary)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {pin.title}
-                        </span>
-                        {pin.reaction && (
-                          <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>
-                            {REACTION_EMOJI_MAP[pin.reaction]}
-                          </span>
-                        )}
-                      </div>
-                      <div
+                      <PinThumb pin={pin} photoRepo={photoRepo} />
+                      <button
+                        onClick={() => {
+                          if (!showTrash) {
+                            onPinDetail(pin);
+                            onPinFlyTo(pin);
+                          }
+                        }}
+                        disabled={showTrash}
                         style={{
+                          flex: 1,
+                          textAlign: "left",
+                          background: "none",
+                          border: "none",
+                          cursor: showTrash ? "default" : "pointer",
+                          padding: 0,
                           display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          paddingLeft: 14,
+                          flexDirection: "column",
+                          gap: 2,
+                          minWidth: 0,
                         }}
                       >
-                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                          {(pin.exif?.takenAt ?? pin.createdAt).toLocaleString("ja-JP", {
-                            year: "numeric",
-                            month: "long",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                          {pin.exif?.takenAt && pin.exif.takenAtEstimated && "（推定）"}
-                          {showTrash && pin.deletedAt && (
-                            <> · 削除: {pin.deletedAt.toLocaleDateString("ja-JP")}</>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {cat && (
+                            <span style={{ fontSize: 16, lineHeight: 1, flexShrink: 0 }}>
+                              {cat.emoji}
+                            </span>
                           )}
-                        </span>
-                        {pin.tag && (
                           <span
                             style={{
-                              fontSize: 11,
-                              color: "var(--text-muted)",
+                              fontSize: 14,
+                              fontWeight: 600,
+                              color: showTrash ? "var(--text-muted)" : "var(--text-primary)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {pin.tag}
+                            {pin.title}
+                          </span>
+                          {pin.reaction && (
+                            <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>
+                              {REACTION_EMOJI_MAP[pin.reaction]}
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            paddingLeft: 14,
+                          }}
+                        >
+                          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                            {(pin.exif?.takenAt ?? pin.createdAt).toLocaleString("ja-JP", {
+                              year: "numeric",
+                              month: "long",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                            {pin.exif?.takenAt && pin.exif.takenAtEstimated && "（推定）"}
+                            {showTrash && pin.deletedAt && (
+                              <> · 削除: {pin.deletedAt.toLocaleDateString("ja-JP")}</>
+                            )}
+                          </span>
+                          {pin.tag && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: "var(--text-muted)",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {pin.tag}
+                            </span>
+                          )}
+                        </div>
+                        {pin.comment && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "var(--text-secondary)",
+                              paddingLeft: 14,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              maxWidth: "100%",
+                            }}
+                          >
+                            {pin.comment}
                           </span>
                         )}
-                      </div>
-                      {pin.comment && (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            color: "var(--text-secondary)",
-                            paddingLeft: 14,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            maxWidth: "100%",
-                          }}
-                        >
-                          {pin.comment}
-                        </span>
-                      )}
-                    </button>
-
-                    {showTrash ? (
-                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                        <button
-                          onClick={() => onRestore(pin)}
-                          style={{
-                            background: "#22c55e",
-                            color: "#fff",
-                            border: "none",
-                            borderRadius: 6,
-                            padding: "4px 10px",
-                            fontSize: 12,
-                            cursor: "pointer",
-                          }}
-                        >
-                          復元
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                `「${pin.title}」を完全削除しますか？\nこの操作は元に戻せません。`
-                              )
-                            ) {
-                              onHardDelete(pin);
-                            }
-                          }}
-                          style={{
-                            background: "#ef4444",
-                            color: "#fff",
-                            border: "none",
-                            borderRadius: 6,
-                            padding: "4px 10px",
-                            fontSize: 12,
-                            cursor: "pointer",
-                          }}
-                        >
-                          完全削除
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => onDelete(pin)}
-                        style={{
-                          flexShrink: 0,
-                          background: "none",
-                          color: "#ccc",
-                          border: "none",
-                          fontSize: 18,
-                          cursor: "pointer",
-                          padding: "0 4px",
-                          lineHeight: 1,
-                          display: "flex",
-                          alignItems: "center",
-                        }}
-                        title="削除"
-                      >
-                        <Trash2 size={18} />
                       </button>
-                    )}
-                  </div>
-                );
-              })
-            )}
+
+                      {showTrash ? (
+                        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                          <button
+                            onClick={() => onRestore(pin)}
+                            style={{
+                              background: "#22c55e",
+                              color: "#fff",
+                              border: "none",
+                              borderRadius: 6,
+                              padding: "4px 10px",
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                          >
+                            復元
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm({ type: "one", pin })}
+                            style={{
+                              background: "#ef4444",
+                              color: "#fff",
+                              border: "none",
+                              borderRadius: 6,
+                              padding: "4px 10px",
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                          >
+                            完全削除
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => onDelete(pin)}
+                          style={{
+                            flexShrink: 0,
+                            background: "none",
+                            color: "#ccc",
+                            border: "none",
+                            fontSize: 18,
+                            cursor: "pointer",
+                            padding: "0 4px",
+                            lineHeight: 1,
+                            display: "flex",
+                            alignItems: "center",
+                          }}
+                          title="削除"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 完全削除確認ダイアログ */}
+      {deleteConfirm && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--bg-primary)",
+              borderRadius: 16,
+              padding: "24px 20px",
+              maxWidth: 360,
+              width: "100%",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}
+          >
+            <h3
+              style={{
+                margin: "0 0 12px",
+                fontSize: 16,
+                fontWeight: 600,
+                color: "var(--text-primary)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <AlertTriangle size={18} color="#f59e0b" />
+              {deleteConfirm.type === "all" ? "ゴミ箱を空にしますか？" : "完全削除しますか？"}
+            </h3>
+            <p
+              style={{
+                margin: "0 0 20px",
+                fontSize: 14,
+                color: "var(--text-secondary)",
+                lineHeight: 1.6,
+              }}
+            >
+              {deleteConfirm.type === "all"
+                ? `${deletedPins.length}件を完全削除します。この操作は元に戻せません。`
+                : `「${deleteConfirm.pin.title}」を完全削除します。この操作は元に戻せません。`}
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                style={{
+                  padding: "8px 16px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  background: "var(--bg-primary)",
+                  color: "var(--text-secondary)",
+                  fontSize: 14,
+                  cursor: "pointer",
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={() => {
+                  if (deleteConfirm.type === "all") {
+                    onHardDeleteAll();
+                  } else {
+                    onHardDelete(deleteConfirm.pin);
+                  }
+                  setDeleteConfirm(null);
+                }}
+                style={{
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: 8,
+                  background: "#ef4444",
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                完全削除
+              </button>
+            </div>
           </div>
-        </>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 

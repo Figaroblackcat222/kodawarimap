@@ -32,7 +32,7 @@ export function useMap(
       zoom: DEFAULT_ZOOM,
     });
 
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
+    map.addControl(new maplibregl.NavigationControl(), "top-left");
     map.doubleClickZoom.disable();
 
     let clickTimer: ReturnType<typeof setTimeout> | null = null;

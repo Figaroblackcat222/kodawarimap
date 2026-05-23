@@ -4,9 +4,10 @@ import { Camera, Loader2 } from "lucide-react";
 interface Props {
   onFile: (file: File) => void;
   loading?: boolean;
+  bottom: number;
 }
 
-export function PhotoUploadButton({ onFile, loading = false }: Props) {
+export function PhotoUploadButton({ onFile, loading = false, bottom }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -27,15 +28,15 @@ export function PhotoUploadButton({ onFile, loading = false }: Props) {
         disabled={loading}
         style={{
           position: "absolute",
-          top: 16,
-          left: 16,
+          bottom,
+          left: 8,
           zIndex: 10,
           background: loading ? "#555" : "#1a1a2e",
           color: "#fff",
           border: "none",
           borderRadius: 8,
-          padding: "10px 16px",
-          fontSize: 14,
+          padding: "8px 12px",
+          fontSize: 13,
           cursor: loading ? "default" : "pointer",
           boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
           display: "flex",

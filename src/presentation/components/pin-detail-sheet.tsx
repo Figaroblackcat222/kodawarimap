@@ -1,6 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { X, Plus, Loader2, Pencil, ExternalLink, Download, Lock } from "lucide-react";
+import {
+  X,
+  Plus,
+  Loader2,
+  Pencil,
+  ExternalLink,
+  Download,
+  Lock,
+  AlertTriangle,
+} from "lucide-react";
 import { normalizePhoto } from "@infrastructure/image/normalize-photo";
 import { parseExif } from "@infrastructure/exif/exif-parser";
 import { downloadPhoto } from "@infrastructure/image/write-exif";
@@ -100,6 +109,7 @@ export function PinDetailSheet({
   const lbPointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchInitRef = useRef<{ dist: number; startScale: number } | null>(null);
   const initialPhotoCountRef = useRef<number | null>(null);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   const isDirty =
     title !== pin.title ||
@@ -119,12 +129,19 @@ export function PinDetailSheet({
       ([id, c]) => c.trim() !== (photos.find((p) => p.id === id)?.comment?.trim() ?? "")
     );
 
-  const handleClose = async () => {
-    if (isDirty && !window.confirm("編集中の内容が保存されていません。閉じますか？")) return;
+  const doClose = async () => {
     if (pendingAddIds.length > 0) {
       await Promise.all(pendingAddIds.map((id) => photoRepo.delete(id)));
     }
     onClose();
+  };
+
+  const handleClose = () => {
+    if (isDirty) {
+      setShowCloseConfirm(true);
+      return;
+    }
+    doClose();
   };
 
   const currentCategory = PRESET_CATEGORIES.find((c) => c.id === categoryId) ?? DEFAULT_CATEGORY;
@@ -1293,6 +1310,92 @@ export function PinDetailSheet({
             document.body
           );
         })()}
+      {showCloseConfirm &&
+        createPortal(
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 10000,
+              background: "rgba(0,0,0,0.5)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 16,
+            }}
+          >
+            <div
+              style={{
+                background: "var(--bg-primary)",
+                borderRadius: 16,
+                padding: "24px 20px",
+                maxWidth: 360,
+                width: "100%",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+              }}
+            >
+              <h3
+                style={{
+                  margin: "0 0 12px",
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <AlertTriangle size={18} color="#f59e0b" />
+                閉じますか？
+              </h3>
+              <p
+                style={{
+                  margin: "0 0 20px",
+                  fontSize: 14,
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.6,
+                }}
+              >
+                編集中の内容が保存されていません。閉じると変更は失われます。
+              </p>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setShowCloseConfirm(false)}
+                  style={{
+                    padding: "8px 16px",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    background: "var(--bg-primary)",
+                    color: "var(--text-secondary)",
+                    fontSize: 14,
+                    cursor: "pointer",
+                  }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCloseConfirm(false);
+                    doClose();
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    border: "none",
+                    borderRadius: 8,
+                    background: "#ef4444",
+                    color: "#fff",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  閉じる
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   );
 }

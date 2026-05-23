@@ -72,14 +72,17 @@ src/
 │   └── cache/                     # TileCacheAdapter（未実装）
 └── presentation/                  # React コンポーネント / hooks
     ├── components/
-    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・カテゴリー絵文字バッジ（白丸中央配置・font-size:22px・全ピン常時表示）・リッチツールチップ遅延サムネイル（写真2枚以上で枚数バッジ）・POI取得中インジケーター（地図左下スピナー付きpill）・POI起動時ロード（loadPoiForStartup: loadedTilesRefを汚染しない専用関数）・ピン作成時z8タイルPOI取得（loadPoiForPin: 二重取得防止）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin選択中はマーカーをvisibility:hiddenで非表示（詳細シートとの重なり防止）・filteredPinIdsによる地図マーカーと一覧フィルターの同期・tagKeywordsをuseMemoで集計しPinListSheet/PinDetailSheetに渡す）
-    │   ├── photo-upload-button.tsx # 写真追加ボタン（スマホ・PCともに「写真から記録」テキスト常時表示）
+    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・カテゴリー絵文字バッジ（白丸中央配置・font-size:22px・全ピン常時表示）・リッチツールチップ遅延サムネイル（写真2枚以上で枚数バッジ）・POI取得中インジケーター（地図左下スピナー付きpill）・POI起動時ロード（loadPoiForStartup: loadedTilesRefを汚染しない専用関数）・ピン作成時z8タイルPOI取得（loadPoiForPin: 二重取得防止）・汎用カテゴリー選択時はPOI非表示（applyPoiFilter: general→空配列）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin選択中はマーカーをvisibility:hiddenで非表示（詳細シートとの重なり防止）・filteredPinIdsによる地図マーカーと一覧フィルターの同期・tagKeywordsをuseMemoで集計しPinListSheet/PinDetailSheetに渡す・tickerLabel/tickerMessageをコンテキスト別に算出（CYCLE_MESSAGES 35件・INTRO_MESSAGES 5件）・handleTickerScrollEndコールバックでサイクル管理（setInterval廃止）・flyTo全箇所でpadding 4辺明示（top:40・bottom:0またはdetailOverlap・left:0・right:0）・設定ボタン top:48 right:8・geocoderEnabled/handleGeocoderEnabledChange状態管理）
+    │   ├── photo-upload-button.tsx # 写真追加ボタン（左下配置・bottom prop でシートに追従・スマホ・PCともに「写真から記録」テキスト常時表示・padding:8px 12px・fontSize:13）
     │   ├── category-selector.tsx   # カテゴリー選択ピル（地図スタイル切替・固定白背景・タップで2列グリッド展開・選択後に縮小・カテゴリー追加時は行が自動増加）
-    │   ├── pin-list-sheet.tsx      # ボトムシート（3段階スナップ44px/40%/80%・ピルハンドル中央上部・一覧・フィルター・ソート・表示範囲・カテゴリー/reaction/タグフィルター・フィルターpillsはflexWrap折り返し表示・タグフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリック閉じ）・フィルター展開時にシート自動最大化・フィルター適用中はFilterXアイコンをフィルターボタン左隣に表示・タイトル行にreaction絵文字インライン表示・撮影日時右隣にtag表示・キーワード検索がtag対象・pin.thumbnailPhotoIdでサムネイル選択・onFilteredPinsChangeで地図マーカーフィルターと同期）
+    │   ├── pin-list-sheet.tsx      # ボトムシート（11段階スナップ44px/25%〜65%5%刻み/85%・展開縮小ボタンは44px↔65%トグル・件数表示はactivePins.length（フィルター適用後）・ピルハンドル下に全件/表示範囲トグル（onListScopeChangeコールバック経由）・一覧・フィルター・ソート。フィルターセクションボタン4色: カテゴリー=青 #3b82f6（LayoutGrid）・リアクション=緑 #22c55e（Smile）・マイタグ=紫 #8b5cf6（Tag）・撮影日=橙 #f59e0b（Calendar）。フィルターpillsはflexWrap折り返し表示・タグフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリック閉じ）・フィルター展開時にシート自動最大化・フィルター適用中はFilterXアイコンをフィルターボタン左隣に表示・撮影日フィルターはtoLocalDateStr()でローカルタイムゾーン基準・今週=日曜起点・今月=1日・今年=1月1日。タイトル行にreaction絵文字インライン表示・撮影日時右隣にtag表示・キーワード検索がtag対象・pin.thumbnailPhotoIdでサムネイル選択・onFilteredPinsChangeで地図マーカーフィルターと同期）
     │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム（写真コメントをlightboxに表示）・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所フィールド・ダウンロード許可トグル・写真一括追加・各写真に個別コメント入力（photoRepo.updateComment）・★/☆ボタンでサムネ選択（thumbnailPhotoId）・isDirtyによる保存ボタン活性化制御（isNew=trueは常時活性）・pendingAddIdsで閉じる時の未保存写真自動削除・マイタグ入力欄（コメント下）にドロップダウンサジェスト・フッター「閉じる」ボタン）
     │   ├── cluster-sheet.tsx       # 同座標ピン一覧シート（クラスターマーカークリック時）
-    │   ├── current-location-button.tsx # 現在地flyToボタン
-    │   └── settings-sheet.tsx      # 設定画面（地図情報更新（POIキャッシュclr+SW更新チェック）・エクスポート・インポート・Overpass POIをR2タイル形式でZIPエクスポート（poi-tiles.zip・ピンのz8タイル単位でOverpass APIを呼び出し・進捗表示付き）・ゴミ箱保持期間・ソート順・表示範囲・昼夜自動テーマ切り替えトグル＋夜間時刻設定）
+    │   ├── current-location-button.tsx # 現在地flyToボタン（左側配置 top:160 left:8）
+    │   ├── settings-sheet.tsx      # 設定画面（地図情報更新（POIキャッシュclr+SW更新チェック）・エクスポート・インポート・Overpass POIをR2タイル形式でZIPエクスポート（poi-tiles.zip・進捗表示付き）・ゴミ箱保持期間・ソート順・地図検索ON/OFF（Nominatim同意ダイアログ付き）・ガイドメッセージON/OFF＋折りたたみ解除ボタン（localStorage: ticker-collapsed）・昼夜自動テーマ切り替えトグル＋夜間時刻設定）
+    │   ├── pwa-update-dialog.tsx   # PWA更新通知ダイアログ（useRegisterSW・新SW待機時に表示・「後で」は2時間スキップ・visibilitychange+タイマーで再表示）
+    │   ├── message-ticker.tsx      # ガイドメッセージティッカー（height:40px・font-size:14px・左端に固定ラベル（【はじめに】【ヒント】）・静止3秒→左スクロール1回→onScrollEndで次メッセージのサイクル・静止中は左12px マージン・×で左端の▶ボタンに折りたたみ（再タップで展開）・localStorage: ticker-enabled/ticker-collapsed）
+    │   └── geocoder-search.tsx     # 地名・ランドマーク検索（Nominatim・収縮/展開ボタン top:48 right:52・展開時 top:48 left:8 right:8・debounce 400ms・flyTo zoom:14・© OpenStreetMap contributors）
 ```
 
 ```
@@ -279,7 +282,9 @@ lightカテゴリーは「昼夜自動テーマ」ON・夜間時刻帯のとき 
 
 ## ビルド・デプロイ設定
 
-### コード分割（`vite.config.ts`）
+### コード分割・PWA設定（`vite.config.ts`）
+
+`registerType: "prompt"` — 新しい Service Worker を検知してもユーザー確認なしに自動適用せず、`PwaUpdateDialog` でダイアログを表示してから `updateServiceWorker()` で適用する。
 
 `heic-to`（WebAssembly バンドル）が 2.7 MB あり Workbox のデフォルト上限（2 MiB）を超えるため、`manualChunks` で分割している。
 

@@ -8,15 +8,18 @@ import {
   Shield,
   Globe,
   ArrowUpDown,
-  Eye,
-  MapPin,
   Sun,
   RefreshCw,
+  Newspaper,
+  Search,
+  AlertCircle,
+  CheckCircle,
 } from "lucide-react";
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { PhotoRepository } from "@application/ports/photo-repository";
 import { lngLatToTile, tileToBbox } from "../../infrastructure/poi/tile-utils";
 import { fetchPoiFromOverpass } from "../../infrastructure/poi/overpass-client";
+import { TICKER_ENABLED_KEY, TICKER_COLLAPSED_KEY } from "./message-ticker";
 
 interface Props {
   pinRepo: PinRepository;
@@ -27,14 +30,14 @@ interface Props {
   onTrashRetentionChange: (days: number) => void;
   sortOrder: "date" | "title";
   onSortOrderChange: (v: "date" | "title") => void;
-  listScope: "all" | "visible";
-  onListScopeChange: (v: "all" | "visible") => void;
   autoNightMode: boolean;
   onAutoNightModeChange: (v: boolean) => void;
   nightStart: string;
   onNightStartChange: (v: string) => void;
   nightEnd: string;
   onNightEndChange: (v: string) => void;
+  geocoderEnabled: boolean;
+  onGeocoderEnabledChange: (v: boolean) => void;
 }
 
 const RETENTION_OPTIONS = [7, 14, 30, 60, 90] as const;
@@ -48,14 +51,14 @@ export function SettingsSheet({
   onTrashRetentionChange,
   sortOrder,
   onSortOrderChange,
-  listScope,
-  onListScopeChange,
   autoNightMode,
   onAutoNightModeChange,
   nightStart,
   onNightStartChange,
   nightEnd,
   onNightEndChange,
+  geocoderEnabled,
+  onGeocoderEnabledChange,
 }: Props) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -66,6 +69,17 @@ export function SettingsSheet({
   const [mapUpdateStatus, setMapUpdateStatus] = useState<"idle" | "checking" | "done" | "error">(
     "idle"
   );
+  const [tickerEnabled, setTickerEnabled] = useState(
+    () => localStorage.getItem(TICKER_ENABLED_KEY) !== "false"
+  );
+  const [tickerCollapsed, setTickerCollapsed] = useState(
+    () => localStorage.getItem(TICKER_COLLAPSED_KEY) === "true"
+  );
+  const [showGeocoderConsent, setShowGeocoderConsent] = useState(false);
+  const [infoDialog, setInfoDialog] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const handleMapUpdate = async () => {
     setMapUpdateStatus("checking");
@@ -104,7 +118,7 @@ export function SettingsSheet({
     try {
       const pins = await pinRepo.findAll();
       if (pins.length === 0) {
-        alert("ピンがありません。先にピンを追加してください。");
+        setInfoDialog({ type: "error", message: "ピンがありません。先にピンを追加してください。" });
         return;
       }
 
@@ -218,7 +232,10 @@ export function SettingsSheet({
       }
       onImportComplete();
     } catch {
-      alert("インポートに失敗しました。正しいファイルを選択してください。");
+      setInfoDialog({
+        type: "error",
+        message: "インポートに失敗しました。正しいファイルを選択してください。",
+      });
     } finally {
       setIsImporting(false);
       e.target.value = "";
@@ -254,7 +271,7 @@ export function SettingsSheet({
         // スキップ
       }
     }
-    alert(`${count}件のピンをインポートしました`);
+    setInfoDialog({ type: "success", message: `${count}件のピンをインポートしました` });
   };
 
   const importZip = async (file: File) => {
@@ -338,320 +355,565 @@ export function SettingsSheet({
       }
     }
 
-    alert(`${pinCount}件のピンと${photoCount}枚の写真をインポートしました`);
+    setInfoDialog({
+      type: "success",
+      message: `${pinCount}件のピンと${photoCount}枚の写真をインポートしました`,
+    });
   };
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 40,
-        background: "var(--bg-primary)",
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-      }}
-    >
-      {/* ヘッダー */}
+    <>
       <div
         style={{
+          position: "absolute",
+          inset: 0,
+          zIndex: 40,
+          background: "var(--bg-primary)",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "16px 16px 12px",
-          borderBottom: "1px solid var(--border-light)",
-          flexShrink: 0,
+          flexDirection: "column",
+          overflow: "hidden",
         }}
       >
-        <span style={{ fontSize: 17, fontWeight: 700, color: "var(--text-primary)" }}>設定</span>
-        <button
-          onClick={onClose}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--text-muted)",
-            display: "flex",
-            alignItems: "center",
-            padding: 4,
-          }}
-        >
-          <X size={22} />
-        </button>
-      </div>
-
-      {/* コンテンツ */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
-        {/* 地図情報 */}
-        <SectionTitle label="地図情報" />
-
-        <SettingRow
-          icon={<RefreshCw size={18} />}
-          label="最新情報に更新"
-          description="POIキャッシュをクリアしてサーバーから最新の地図データを取得"
-        >
-          <button
-            onClick={handleMapUpdate}
-            disabled={mapUpdateStatus === "checking"}
-            style={btnStyle(
-              mapUpdateStatus === "done"
-                ? "#059669"
-                : mapUpdateStatus === "error"
-                  ? "#dc2626"
-                  : "#6366f1"
-            )}
-          >
-            {mapUpdateStatus === "checking"
-              ? "確認中…"
-              : mapUpdateStatus === "done"
-                ? "最新です"
-                : mapUpdateStatus === "error"
-                  ? "失敗"
-                  : "更新する"}
-          </button>
-        </SettingRow>
-
-        <div style={{ marginTop: 20 }} />
-
-        {/* データ管理セクション */}
-        <SectionTitle label="データ管理" />
-
-        <SettingRow
-          icon={<Download size={18} />}
-          label="エクスポート"
-          description="ピンデータをJSONファイルとして保存"
-        >
-          <button onClick={handleExportJson} disabled={isExporting} style={btnStyle("#1a1a2e")}>
-            ピンのみ
-          </button>
-          <button onClick={handleExportZip} disabled={isExporting} style={btnStyle("#6366f1")}>
-            写真込みZIP
-          </button>
-        </SettingRow>
-
-        <SettingRow
-          icon={<MapPin size={18} />}
-          label="POI GeoJSONエクスポート"
-          description="ピン周辺のOverpass POIをR2タイル形式（poi/z8/{x}/{y}.geojson）でZIP出力"
-        >
-          <button
-            onClick={handleExportPoiGeoJson}
-            disabled={isExporting}
-            style={btnStyle("#059669")}
-          >
-            {poiExportProgress
-              ? `POI取得中... (${poiExportProgress.current}/${poiExportProgress.total})`
-              : "poi-tiles.zip"}
-          </button>
-        </SettingRow>
-
-        <SettingRow
-          icon={<Upload size={18} />}
-          label="インポート"
-          description="JSON（ピンのみ）またはZIP（写真込み）から復元"
-        >
-          <label style={{ ...btnStyle("#22c55e"), cursor: "pointer" }}>
-            {isImporting ? "読み込み中…" : "ファイルを選択"}
-            <input
-              type="file"
-              accept=".json,.zip"
-              style={{ display: "none" }}
-              onChange={handleImport}
-            />
-          </label>
-        </SettingRow>
-
-        <div style={{ marginTop: 20 }} />
-
-        {/* 地図テーマ */}
-        <SectionTitle label="地図テーマ" />
-
+        {/* ヘッダー */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 12,
-            padding: "12px 0",
-            borderBottom: autoNightMode ? "none" : "1px solid var(--border-light)",
+            justifyContent: "space-between",
+            padding: "16px 16px 12px",
+            borderBottom: "1px solid var(--border-light)",
+            flexShrink: 0,
           }}
         >
-          <span style={{ color: "var(--text-secondary)", flexShrink: 0 }}>
-            <Sun size={18} />
-          </span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
-              昼夜自動切り替え
-            </div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              時刻に応じてライト/ダークマップを自動切替
-            </div>
-          </div>
+          <span style={{ fontSize: 17, fontWeight: 700, color: "var(--text-primary)" }}>設定</span>
           <button
-            role="switch"
-            aria-checked={autoNightMode}
-            onClick={() => onAutoNightModeChange(!autoNightMode)}
+            onClick={onClose}
             style={{
-              flexShrink: 0,
-              width: 44,
-              height: 24,
-              borderRadius: 12,
+              background: "none",
               border: "none",
               cursor: "pointer",
-              background: autoNightMode ? "#6366f1" : "var(--border)",
-              position: "relative",
-              transition: "background 0.2s",
-              padding: 0,
+              color: "var(--text-muted)",
+              display: "flex",
+              alignItems: "center",
+              padding: 4,
             }}
           >
-            <span
-              style={{
-                display: "block",
-                width: 18,
-                height: 18,
-                borderRadius: "50%",
-                background: "#fff",
-                position: "absolute",
-                top: 3,
-                left: autoNightMode ? 23 : 3,
-                transition: "left 0.2s",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-              }}
-            />
+            <X size={22} />
           </button>
         </div>
 
-        {autoNightMode && (
+        {/* コンテンツ */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+          {/* 地図情報 */}
+          <SectionTitle label="地図情報" />
+
+          <SettingRow
+            icon={<RefreshCw size={18} />}
+            label="最新情報に更新"
+            description="POIキャッシュをクリアしてサーバーから最新の地図データを取得"
+          >
+            <button
+              onClick={handleMapUpdate}
+              disabled={mapUpdateStatus === "checking"}
+              style={btnStyle(
+                mapUpdateStatus === "done"
+                  ? "#059669"
+                  : mapUpdateStatus === "error"
+                    ? "#dc2626"
+                    : "#6366f1"
+              )}
+            >
+              {mapUpdateStatus === "checking"
+                ? "確認中…"
+                : mapUpdateStatus === "done"
+                  ? "最新です"
+                  : mapUpdateStatus === "error"
+                    ? "失敗"
+                    : "更新する"}
+            </button>
+          </SettingRow>
+
+          <div style={{ marginTop: 20 }} />
+
+          {/* 地図検索 */}
+          <SectionTitle label="地図検索" />
+
+          <SettingRow
+            icon={<Search size={18} />}
+            label="地名・ランドマーク検索"
+            description="地名や施設名で地図を移動できます（OpenStreetMap財団のサーバーに検索語が送信されます）"
+          >
+            <button
+              role="switch"
+              aria-checked={geocoderEnabled}
+              onClick={() => {
+                if (!geocoderEnabled) {
+                  setShowGeocoderConsent(true);
+                } else {
+                  onGeocoderEnabledChange(false);
+                }
+              }}
+              style={{
+                width: 44,
+                height: 24,
+                borderRadius: 12,
+                border: "none",
+                background: geocoderEnabled ? "#6366f1" : "var(--border)",
+                position: "relative",
+                cursor: "pointer",
+                transition: "background 0.2s",
+                flexShrink: 0,
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  top: 3,
+                  left: geocoderEnabled ? 23 : 3,
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  transition: "left 0.2s",
+                }}
+              />
+            </button>
+          </SettingRow>
+
+          <div style={{ marginTop: 20 }} />
+
+          {/* データ管理セクション */}
+          <SectionTitle label="データ管理" />
+
+          <SettingRow
+            icon={<Download size={18} />}
+            label="エクスポート"
+            description="ピンデータをJSONファイルとして保存"
+          >
+            <button onClick={handleExportJson} disabled={isExporting} style={btnStyle("#1a1a2e")}>
+              ピンのみ
+            </button>
+            <button onClick={handleExportZip} disabled={isExporting} style={btnStyle("#6366f1")}>
+              写真込みZIP
+            </button>
+          </SettingRow>
+
+          <SettingRow
+            icon={<Upload size={18} />}
+            label="インポート"
+            description="JSON（ピンのみ）またはZIP（写真込み）から復元"
+          >
+            <label style={{ ...btnStyle("#22c55e"), cursor: "pointer" }}>
+              {isImporting ? "読み込み中…" : "ファイルを選択"}
+              <input
+                type="file"
+                accept=".json,.zip"
+                style={{ display: "none" }}
+                onChange={handleImport}
+              />
+            </label>
+          </SettingRow>
+
+          <div style={{ marginTop: 20 }} />
+
+          {/* 地図テーマ */}
+          <SectionTitle label="地図テーマ" />
+
           <div
             style={{
-              borderBottom: "1px solid var(--border-light)",
-              paddingBottom: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "12px 0",
+              borderBottom: autoNightMode ? "none" : "1px solid var(--border-light)",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                padding: "8px 0 8px 30px",
-              }}
-            >
-              <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>夜間開始</div>
-              <input
-                type="time"
-                value={nightStart}
-                onChange={(e) => onNightStartChange(e.target.value)}
-                style={selectStyle}
-              />
+            <span style={{ color: "var(--text-secondary)", flexShrink: 0 }}>
+              <Sun size={18} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+                昼夜自動切り替え
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                時刻に応じてライト/ダークマップを自動切替
+              </div>
             </div>
-            <div
+            <button
+              role="switch"
+              aria-checked={autoNightMode}
+              onClick={() => onAutoNightModeChange(!autoNightMode)}
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                padding: "8px 0 0 30px",
+                flexShrink: 0,
+                width: 44,
+                height: 24,
+                borderRadius: 12,
+                border: "none",
+                cursor: "pointer",
+                background: autoNightMode ? "#6366f1" : "var(--border)",
+                position: "relative",
+                transition: "background 0.2s",
+                padding: 0,
               }}
             >
-              <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>夜間終了</div>
-              <input
-                type="time"
-                value={nightEnd}
-                onChange={(e) => onNightEndChange(e.target.value)}
-                style={selectStyle}
+              <span
+                style={{
+                  display: "block",
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  position: "absolute",
+                  top: 3,
+                  left: autoNightMode ? 23 : 3,
+                  transition: "left 0.2s",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                }}
               />
+            </button>
+          </div>
+
+          {autoNightMode && (
+            <div
+              style={{
+                borderBottom: "1px solid var(--border-light)",
+                paddingBottom: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "8px 0 8px 30px",
+                }}
+              >
+                <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>
+                  夜間開始
+                </div>
+                <input
+                  type="time"
+                  value={nightStart}
+                  onChange={(e) => onNightStartChange(e.target.value)}
+                  style={selectStyle}
+                />
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "8px 0 0 30px",
+                }}
+              >
+                <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>
+                  夜間終了
+                </div>
+                <input
+                  type="time"
+                  value={nightEnd}
+                  onChange={(e) => onNightEndChange(e.target.value)}
+                  style={selectStyle}
+                />
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginTop: 20 }} />
+
+          {/* 一覧設定 */}
+          <SectionTitle label="一覧" />
+
+          <SettingRow
+            icon={<ArrowUpDown size={18} />}
+            label="ソート順"
+            description="ピン一覧の並び順"
+          >
+            <select
+              value={sortOrder}
+              onChange={(e) => onSortOrderChange(e.target.value as "date" | "title")}
+              style={selectStyle}
+            >
+              <option value="date">日付順</option>
+              <option value="title">タイトル順</option>
+            </select>
+          </SettingRow>
+
+          <div style={{ marginTop: 20 }} />
+
+          {/* ガイドメッセージ */}
+          <SectionTitle label="ガイドメッセージ" />
+
+          <SettingRow
+            icon={<Newspaper size={18} />}
+            label="ガイドメッセージ"
+            description="地図上部に操作ガイドをスクロール表示"
+          >
+            <button
+              role="switch"
+              aria-checked={tickerEnabled}
+              onClick={() => {
+                const next = !tickerEnabled;
+                setTickerEnabled(next);
+                localStorage.setItem(TICKER_ENABLED_KEY, next ? "true" : "false");
+              }}
+              style={{
+                width: 44,
+                height: 24,
+                borderRadius: 12,
+                border: "none",
+                background: tickerEnabled ? "#6366f1" : "var(--border)",
+                position: "relative",
+                cursor: "pointer",
+                transition: "background 0.2s",
+                flexShrink: 0,
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  top: 3,
+                  left: tickerEnabled ? 23 : 3,
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  background: "#fff",
+                  transition: "left 0.2s",
+                }}
+              />
+            </button>
+          </SettingRow>
+
+          {tickerEnabled && tickerCollapsed && (
+            <SettingRow
+              icon={<Newspaper size={18} />}
+              label="再表示"
+              description="折りたたんだガイドメッセージを再表示"
+            >
+              <button
+                onClick={() => {
+                  localStorage.setItem(TICKER_COLLAPSED_KEY, "false");
+                  setTickerCollapsed(false);
+                }}
+                style={btnStyle("#6366f1")}
+              >
+                再表示する
+              </button>
+            </SettingRow>
+          )}
+
+          <div style={{ marginTop: 20 }} />
+
+          {/* ゴミ箱設定 */}
+          <SectionTitle label="ゴミ箱" />
+
+          <SettingRow
+            icon={<Clock size={18} />}
+            label="保持期間"
+            description="削除したピンを保持する日数"
+          >
+            <select
+              value={trashRetentionDays}
+              onChange={(e) => onTrashRetentionChange(Number(e.target.value))}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 8,
+                border: "1px solid var(--border)",
+                fontSize: 14,
+                outline: "none",
+                cursor: "pointer",
+                background: "var(--input-bg)",
+                color: "var(--text-primary)",
+              }}
+            >
+              {RETENTION_OPTIONS.map((d) => (
+                <option key={d} value={d}>
+                  {d}日
+                </option>
+              ))}
+            </select>
+          </SettingRow>
+
+          <div style={{ marginTop: 20 }} />
+
+          {/* 将来の機能（実装予定） */}
+          <SectionTitle label="将来の機能" />
+
+          <ComingSoonRow
+            icon={<MapIcon size={18} />}
+            label="オフラインマップ"
+            description="エリアを保存してオフラインで地図を閲覧"
+          />
+          <ComingSoonRow
+            icon={<Shield size={18} />}
+            label="プライバシーゾーン"
+            description="自宅・職場など特定の場所を自動で非公開に"
+          />
+          <ComingSoonRow
+            icon={<Globe size={18} />}
+            label="他人の公開マップを表示"
+            description="他のユーザーが公開したピンを地図上に表示"
+          />
+        </div>
+      </div>
+
+      {/* 地図検索 同意ダイアログ */}
+      {showGeocoderConsent && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9998,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--bg-primary)",
+              borderRadius: 16,
+              padding: "24px 20px",
+              maxWidth: 360,
+              width: "100%",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}
+          >
+            <h3
+              style={{
+                margin: "0 0 12px",
+                fontSize: 16,
+                fontWeight: 600,
+                color: "var(--text-primary)",
+              }}
+            >
+              地図検索を有効にしますか？
+            </h3>
+            <p
+              style={{
+                margin: "0 0 20px",
+                fontSize: 14,
+                color: "var(--text-secondary)",
+                lineHeight: 1.6,
+              }}
+            >
+              この機能を使うと、入力した地名・施設名が
+              <strong>OpenStreetMap財団のサーバー（Nominatim）</strong>
+              に送信されます。通信内容はGoogle検索・Yahoo検索と同等で、リクエスト元のIPアドレスが含まれます。検索のたびにインターネット接続が発生します。写真・ピン・その他のアプリ内データは一切送信されません。
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setShowGeocoderConsent(false)}
+                style={{
+                  padding: "8px 16px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  background: "var(--bg-primary)",
+                  color: "var(--text-secondary)",
+                  fontSize: 14,
+                  cursor: "pointer",
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={() => {
+                  onGeocoderEnabledChange(true);
+                  setShowGeocoderConsent(false);
+                }}
+                style={{
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: 8,
+                  background: "#6366f1",
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                有効にする
+              </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        <div style={{ marginTop: 20 }} />
-
-        {/* 一覧設定 */}
-        <SectionTitle label="一覧" />
-
-        <SettingRow
-          icon={<ArrowUpDown size={18} />}
-          label="ソート順"
-          description="ピン一覧の並び順"
+      {/* 通知ダイアログ（成功・エラー） */}
+      {infoDialog && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
         >
-          <select
-            value={sortOrder}
-            onChange={(e) => onSortOrderChange(e.target.value as "date" | "title")}
-            style={selectStyle}
-          >
-            <option value="date">日付順</option>
-            <option value="title">タイトル順</option>
-          </select>
-        </SettingRow>
-
-        <SettingRow
-          icon={<Eye size={18} />}
-          label="表示範囲"
-          description="一覧に表示するピンの範囲"
-        >
-          <select
-            value={listScope}
-            onChange={(e) => onListScopeChange(e.target.value as "all" | "visible")}
-            style={selectStyle}
-          >
-            <option value="all">すべて</option>
-            <option value="visible">地図表示範囲のみ</option>
-          </select>
-        </SettingRow>
-
-        <div style={{ marginTop: 20 }} />
-
-        {/* ゴミ箱設定 */}
-        <SectionTitle label="ゴミ箱" />
-
-        <SettingRow
-          icon={<Clock size={18} />}
-          label="保持期間"
-          description="削除したピンを保持する日数"
-        >
-          <select
-            value={trashRetentionDays}
-            onChange={(e) => onTrashRetentionChange(Number(e.target.value))}
+          <div
             style={{
-              padding: "6px 10px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              fontSize: 14,
-              outline: "none",
-              cursor: "pointer",
-              background: "var(--input-bg)",
-              color: "var(--text-primary)",
+              background: "var(--bg-primary)",
+              borderRadius: 16,
+              padding: "24px 20px",
+              maxWidth: 360,
+              width: "100%",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
             }}
           >
-            {RETENTION_OPTIONS.map((d) => (
-              <option key={d} value={d}>
-                {d}日
-              </option>
-            ))}
-          </select>
-        </SettingRow>
-
-        <div style={{ marginTop: 20 }} />
-
-        {/* 将来の機能（実装予定） */}
-        <SectionTitle label="将来の機能" />
-
-        <ComingSoonRow
-          icon={<MapIcon size={18} />}
-          label="オフラインマップ"
-          description="エリアを保存してオフラインで地図を閲覧"
-        />
-        <ComingSoonRow
-          icon={<Shield size={18} />}
-          label="プライバシーゾーン"
-          description="自宅・職場など特定の場所を自動で非公開に"
-        />
-        <ComingSoonRow
-          icon={<Globe size={18} />}
-          label="他人の公開マップを表示"
-          description="他のユーザーが公開したピンを地図上に表示"
-        />
-      </div>
-    </div>
+            <h3
+              style={{
+                margin: "0 0 12px",
+                fontSize: 16,
+                fontWeight: 600,
+                color: "var(--text-primary)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              {infoDialog.type === "success" ? (
+                <CheckCircle size={18} color="#22c55e" />
+              ) : (
+                <AlertCircle size={18} color="#ef4444" />
+              )}
+              {infoDialog.type === "success" ? "完了" : "エラー"}
+            </h3>
+            <p
+              style={{
+                margin: "0 0 20px",
+                fontSize: 14,
+                color: "var(--text-secondary)",
+                lineHeight: 1.6,
+              }}
+            >
+              {infoDialog.message}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setInfoDialog(null)}
+                style={{
+                  padding: "8px 16px",
+                  border: "none",
+                  borderRadius: 8,
+                  background: "#6366f1",
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

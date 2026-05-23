@@ -24,6 +24,8 @@ import { PinDetailSheet } from "./pin-detail-sheet";
 import { ClusterSheet } from "./cluster-sheet";
 import { CurrentLocationButton } from "./current-location-button";
 import { SettingsSheet } from "./settings-sheet";
+import { MessageTicker } from "./message-ticker";
+import { GeocoderSearch } from "./geocoder-search";
 import { Settings } from "lucide-react";
 
 const repo = dexiePinRepository;
@@ -35,11 +37,12 @@ const LIST_SCOPE_KEY = "kodawarimap:list-scope";
 const AUTO_NIGHT_MODE_KEY = "kodawarimap:auto-night-mode";
 const NIGHT_START_KEY = "kodawarimap:night-start";
 const NIGHT_END_KEY = "kodawarimap:night-end";
+const GEOCODER_ENABLED_KEY = "kodawarimap:geocoder-enabled";
 
 function getInitialSheetHeight(): number {
   const raw = parseInt(localStorage.getItem(SHEET_HEIGHT_KEY) ?? "0", 10);
-  const fallback = Math.round(window.innerHeight * 0.4);
-  return Math.max(44, Math.min(raw || fallback, window.innerHeight * 0.8));
+  const fallback = Math.round(window.innerHeight * 0.25);
+  return Math.max(44, Math.min(raw || fallback, window.innerHeight * 0.85));
 }
 
 function getInitialTrashRetentionDays(): number {
@@ -368,6 +371,52 @@ type MergeProposalData = {
   provisionalData: ProvisionalPinData;
 };
 
+const INTRO_MESSAGES = [
+  "[写真から記録] まずは1枚。GPS付き写真を選ぶと、撮影場所に自動でピンが生まれます",
+  "[地図] GPS情報がない写真でも大丈夫。地図をダブルタップして手動でピンを置けます",
+  "[カテゴリー] カテゴリーを選ぶと、地図が登山・食事・釣りなどの世界観に切り替わります",
+  "[写真から記録] 写真1枚で撮影日時・場所・カメラ設定まで自動記録。入力の手間は最小限に",
+  "[アプリ] データはすべてこのデバイスに保存されます。ログイン不要、あなたのこだわりは誰にも渡しません",
+];
+
+const CYCLE_MESSAGES = [
+  "[地図] 地図のどこでも、ダブルタップして新しいピンを刻めます",
+  "[写真から記録] GPS付き写真を選ぶだけで、撮影場所に自動でピンが生まれます",
+  "[写真から記録] 同じ場所・同じ日の写真は、既存ピンへの追加を自動で提案します",
+  "[地図マーカー > 削除] ピンをゆっくり長押しすると、削除の確認バーが表示されます",
+  "[カテゴリー] カテゴリーを変えると地図が変わります。登山・食事・釣り、それぞれの世界観で",
+  "[詳細画面 > リアクション] また行きたい・一回でいいかな・二度と行かない。3つのリアクションで本音を残しましょう",
+  "[詳細画面 > マイタグ] マイタグは自分だけの言葉でいい。「夏祭り」「家族旅行」—なんでもOK",
+  "[一覧] 画面下のバーをつかんで引き上げると、記録一覧を展開できます",
+  "[一覧 > 検索] キーワードを入れると、タイトル・コメント・マイタグをまとめて検索できます",
+  "[一覧 > フィルター] カテゴリー・リアクション・マイタグ・撮影日の4軸で、記録を絞り込めます",
+  "[一覧 > 表示範囲] 「表示範囲」に切り替えると、今見えているエリアのピンだけ一覧表示します",
+  "[詳細画面 > 写真追加] 写真は何枚でもまとめて追加できます。複数枚の変換・保存の進捗も確認できます",
+  "[詳細画面 > 写真コメント] 各写真に一言コメントを添えられます。写真ビューアーで写真と一緒に表示されます",
+  "[詳細画面 > サムネイル] 写真の★ボタンで、一覧に表示するサムネイルを選べます",
+  "[詳細画面 > 写真ビューアー] 写真をタップするとフルスクリーンに。スワイプで前後の写真に切り替えられます",
+  "[写真ビューアー > カメラ情報] 写真ビューアーにはF値・SS・焦点距離・ISOも表示されます。撮影設定の記録にも",
+  "[写真ビューアー > ズーム] 写真ビューアーでは2本指ピンチで写真を拡大できます",
+  "[写真から記録] iPhoneのHEIC写真もそのまま選ぶだけ。自動でJPEGに変換して保存されます",
+  "[地図 > GPS調整] GPSにズレを感じたら、琥珀色のマーカーをドラッグして座標を微調整できます",
+  "[詳細画面 > 撮影場所] 地名はピン作成時に自動で入力されます。もちろん自由に編集もできます",
+  "[詳細画面 > 補足情報] お店のウェブサイトや関連動画のURLも、ピンに紐付けて保存できます",
+  "[写真ビューアー > ダウンロード] 写真ビューアーのダウンロードボタンで、EXIF情報を保ったまま写真を端末に保存できます",
+  "[ゴミ箱] 削除したピンは30日間ゴミ箱に残ります。うっかり消してしまっても安心です",
+  "[写真から記録] 同じ場所でも、日が違えば別ピンに。再訪の記録が積み重なっていきます",
+  "[地図マーカー > タップ] 地図のマーカーをタップすると、そのピンの詳細がすぐ開きます",
+  "[地図マーカー > ホバー] マーカーにカーソルを合わせると、サムネイル付きのツールチップが浮かびます",
+  "[地図マーカー > クラスター] 同じ座標に複数のピンがある場合は、数字バッジでまとめて表示されます",
+  "[詳細画面 > 撮影日時] EXIFに日時がない写真はファイルの更新日時を使います。詳細画面から手動修正も可能です",
+  "[設定 > エクスポート] 大切な記録は、設定画面からJSONやZIPでいつでもバックアップできます",
+  "[設定 > インポート] ZIPをインポートすれば、写真込みで全データを別の端末でも復元できます",
+  "[設定 > 昼夜テーマ] 設定で昼夜自動テーマをONにすると、夜間に地図が自動でダークモードに切り替わります",
+  "[設定 > 地図検索] 地名・ランドマーク名で地図をすぐ移動できる地図検索機能があります（設定でON）",
+  "[地図 > POI] カテゴリーに合ったスポット情報（POI）が地図上に重なって表示されます",
+  "[設定 > 地図情報更新] 設定の「地図情報を更新」で、POIデータとアプリを最新状態にできます",
+  "[設定 > ソート順] 一覧のソート順（日付順・タイトル順）は設定画面で切り替えられます",
+];
+
 export function MapView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
@@ -418,6 +467,9 @@ export function MapView() {
     () => localStorage.getItem(NIGHT_START_KEY) ?? "18:00"
   );
   const [nightEnd, setNightEnd] = useState(() => localStorage.getItem(NIGHT_END_KEY) ?? "06:00");
+  const [geocoderEnabled, setGeocoderEnabled] = useState(
+    () => localStorage.getItem(GEOCODER_ENABLED_KEY) === "true"
+  );
 
   const tagKeywords = useMemo(() => {
     const set = new Set<string>();
@@ -448,6 +500,10 @@ export function MapView() {
   const handleNightEndChange = useCallback((v: string) => {
     setNightEnd(v);
     localStorage.setItem(NIGHT_END_KEY, v);
+  }, []);
+  const handleGeocoderEnabledChange = useCallback((v: boolean) => {
+    setGeocoderEnabled(v);
+    localStorage.setItem(GEOCODER_ENABLED_KEY, String(v));
   }, []);
 
   const handleSortOrderChange = useCallback((order: SortOrder) => {
@@ -500,6 +556,10 @@ export function MapView() {
   }, []);
 
   const applyPoiFilter = useCallback((categoryId: string) => {
+    if (categoryId === "general") {
+      setPoiFeatures([]);
+      return;
+    }
     const all = allPoiFeaturesRef.current ?? [];
     setPoiFeatures(all.filter((f) => f.properties?.categoryId === categoryId));
   }, []);
@@ -654,7 +714,7 @@ export function MapView() {
           map.flyTo({
             center: [sameDayPin.coordinates.lng, sameDayPin.coordinates.lat],
             zoom: 16,
-            padding: { bottom: sheetHeight },
+            padding: { top: 40, bottom: 0, left: 0, right: 0 },
           });
           return;
         }
@@ -670,7 +730,11 @@ export function MapView() {
         provisionalMarkerRef.current = marker;
 
         setProvisionalPinData(provisionalData);
-        map.flyTo({ center: [lng, lat], zoom: 16, padding: { bottom: sheetHeight } });
+        map.flyTo({
+          center: [lng, lat],
+          zoom: 16,
+          padding: { top: 40, bottom: 0, left: 0, right: 0 },
+        });
       } catch (err) {
         console.error("写真の処理中にエラーが発生しました:", err);
         showMessage("写真の読み込みに失敗しました。対応形式: JPEG, PNG, HEIC");
@@ -752,7 +816,7 @@ export function MapView() {
       .addTo(map);
     provisionalMarkerRef.current = marker;
     setProvisionalPinData(provisionalData);
-    map.flyTo({ center: [lng, lat], zoom: 16, padding: { bottom: sheetHeight } });
+    map.flyTo({ center: [lng, lat], zoom: 16, padding: { top: 40, bottom: 0, left: 0, right: 0 } });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mergeProposalData, sheetHeight]);
 
@@ -760,13 +824,11 @@ export function MapView() {
     (pin: Pin) => {
       const map = mapRef.current;
       if (!map) return;
-      const detailHeight = Math.max(sheetHeight, Math.round(window.innerHeight * 0.5));
-      const visibleHeight = window.innerHeight - detailHeight;
+      const detailOverlap = Math.max(0, Math.round(window.innerHeight * 0.75) - sheetHeight);
       map.flyTo({
         center: [pin.coordinates.lng, pin.coordinates.lat],
         zoom: 16,
-        padding: { bottom: detailHeight },
-        offset: [0, Math.round(visibleHeight * 0.25)],
+        padding: { top: 40, bottom: detailOverlap, left: 0, right: 0 },
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -776,7 +838,12 @@ export function MapView() {
   const handleLocate = useCallback(
     (lng: number, lat: number) => {
       const map = mapRef.current;
-      if (map) map.flyTo({ center: [lng, lat], zoom: 16, padding: { bottom: sheetHeight } });
+      if (map)
+        map.flyTo({
+          center: [lng, lat],
+          zoom: 16,
+          padding: { top: 40, bottom: 0, left: 0, right: 0 },
+        });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sheetHeight]
@@ -985,10 +1052,36 @@ export function MapView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poiFeatures]);
 
+  const [cycleIndex, setCycleIndex] = useState(0);
+
+  const handleTickerScrollEnd = useCallback(() => {
+    if (selectedPin) return;
+    const messages = pins.length === 0 ? INTRO_MESSAGES : CYCLE_MESSAGES;
+    setCycleIndex((i) => (i + 1) % messages.length);
+  }, [selectedPin, pins.length]);
+
+  const { tickerLabel, tickerMessage } = useMemo(() => {
+    if (selectedPin)
+      return {
+        tickerLabel: "【ヒント】",
+        tickerMessage: "写真・コメント・マイタグで、このこだわりを丁寧に残してください",
+      };
+    const messages = pins.length === 0 ? INTRO_MESSAGES : CYCLE_MESSAGES;
+    const label = pins.length === 0 ? "【はじめに】" : "【ヒント】";
+    return { tickerLabel: label, tickerMessage: messages[cycleIndex % messages.length] };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPin, pins.length, cycleIndex]);
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={containerRef} style={{ width: "100%", height: `calc(100vh - ${sheetHeight}px)` }} />
-      <PhotoUploadButton onFile={handlePhoto} loading={isProcessing} />
+      <MessageTicker
+        message={tickerMessage}
+        label={tickerLabel}
+        onScrollEnd={handleTickerScrollEnd}
+      />
+      {geocoderEnabled && <GeocoderSearch map={mapRef.current} />}
+      <PhotoUploadButton onFile={handlePhoto} loading={isProcessing} bottom={sheetHeight + 8} />
       <CategorySelector selected={category} onChange={setCategory} bottom={sheetHeight + 8} />
 
       {/* 設定ボタン */}
@@ -996,8 +1089,8 @@ export function MapView() {
         onClick={() => setIsSettingsOpen(true)}
         style={{
           position: "absolute",
-          top: 16,
-          right: 52,
+          top: 48,
+          right: 8,
           zIndex: 10,
           background: "var(--bg-primary)",
           border: "none",
@@ -1032,6 +1125,7 @@ export function MapView() {
         onPinFlyTo={handlePinFlyTo}
         sortOrder={sortOrder}
         listScope={listScope}
+        onListScopeChange={handleListScopeChange}
         mapBounds={mapBounds}
         tagKeywords={tagKeywords}
         onFilteredPinsChange={(filtered) => {
@@ -1234,14 +1328,14 @@ export function MapView() {
           onTrashRetentionChange={handleTrashRetentionChange}
           sortOrder={sortOrder}
           onSortOrderChange={handleSortOrderChange}
-          listScope={listScope}
-          onListScopeChange={handleListScopeChange}
           autoNightMode={autoNightMode}
           onAutoNightModeChange={handleAutoNightModeChange}
           nightStart={nightStart}
           onNightStartChange={handleNightStartChange}
           nightEnd={nightEnd}
           onNightEndChange={handleNightEndChange}
+          geocoderEnabled={geocoderEnabled}
+          onGeocoderEnabledChange={handleGeocoderEnabledChange}
         />
       )}
       {poiLoadingCount > 0 && (
