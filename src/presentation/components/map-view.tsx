@@ -499,13 +499,6 @@ export function MapView() {
   // 同期フック
   const { syncState, triggerSync } = useSync({ encryptionKey });
 
-  // 同期完了時に lastSyncAt を更新
-  useEffect(() => {
-    if (syncState === "idle" && encryptionKey) {
-      setLastSyncAt(new Date());
-    }
-  }, [syncState, encryptionKey]);
-
   // 起動時チェック: ログイン済み && 鍵なし → セットアップシートを開く
   useEffect(() => {
     if (authService.isLoggedIn() && !encryptionKey) {
@@ -562,6 +555,16 @@ export function MapView() {
     setDeletedPins(deleted);
     return active;
   }, []);
+
+  // 同期完了時: ピン一覧を再読込 + lastSyncAt 更新
+  const prevSyncStateRef = useRef<typeof syncState>("idle");
+  useEffect(() => {
+    if (prevSyncStateRef.current === "syncing" && syncState === "idle") {
+      void refreshLists();
+      setLastSyncAt(new Date());
+    }
+    prevSyncStateRef.current = syncState;
+  }, [syncState, refreshLists]);
 
   const syncMarkers = useCallback((map: maplibregl.Map, currentPins: Pin[]) => {
     markersRef.current.forEach((m) => m.remove());
