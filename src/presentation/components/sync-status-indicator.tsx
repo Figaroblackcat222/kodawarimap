@@ -16,10 +16,10 @@ export function SyncStatusIndicator({ syncState, onRetry }: SyncStatusIndicatorP
   // unauthenticated の場合は非表示（設定シートで対応）
   if (syncState === "unauthenticated") return null;
 
+  const isClickable = syncState === "idle" || syncState === "error";
+
   const handleClick = () => {
-    if (syncState === "error") {
-      onRetry();
-    }
+    if (isClickable) onRetry();
   };
 
   return (
@@ -40,7 +40,7 @@ export function SyncStatusIndicator({ syncState, onRetry }: SyncStatusIndicatorP
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        cursor: syncState === "error" ? "pointer" : "default",
+        cursor: isClickable ? "pointer" : "default",
         opacity: 0.9,
       }}
     >
@@ -69,7 +69,7 @@ function StatusIcon({ state }: { state: SyncState }) {
 function stateLabel(state: SyncState): string {
   switch (state) {
     case "idle":
-      return "同期済み";
+      return "同期済み（タップして今すぐ同期）";
     case "syncing":
       return "同期中...";
     case "error":

@@ -434,6 +434,7 @@ export function MapView() {
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
   const clusterMarkersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
   const provisionalMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const locationMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [pins, setPins] = useState<Pin[]>([]);
   const [deletedPins, setDeletedPins] = useState<Pin[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -498,6 +499,21 @@ export function MapView() {
 
   // 同期フック
   const { syncState, triggerSync } = useSync({ encryptionKey });
+
+  // 保存後デバウンス同期（3秒後）+ 定期ポーリング（30分ごと）
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedSyncRef = useRef(() => {});
+  useEffect(() => {
+    debouncedSyncRef.current = () => {
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = setTimeout(triggerSync, 3000);
+    };
+  }, [triggerSync]);
+  useEffect(() => {
+    if (!encryptionKey) return;
+    const id = setInterval(triggerSync, 30 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [encryptionKey, triggerSync]);
 
   // 起動時チェック: ログイン済み && 鍵なし → セットアップシートを開く
   useEffect(() => {
@@ -661,6 +677,7 @@ export function MapView() {
       }
       setPins((prev) => [...prev, pin]);
       void loadPoiForPin(lng, lat);
+      debouncedSyncRef.current();
     },
     [pins.length, category, loadPoiForPin]
   );
@@ -838,6 +855,7 @@ export function MapView() {
       setProvisionalPinData(null);
       setSelectedPin(pin);
       setIsNewPin(true);
+      debouncedSyncRef.current();
       showMessage(`📍 ${pin.title} をプロットしました`);
     } catch (err) {
       console.error("ピンの保存中にエラーが発生しました:", err);
@@ -907,12 +925,28 @@ export function MapView() {
   const handleLocate = useCallback(
     (lng: number, lat: number) => {
       const map = mapRef.current;
-      if (map)
-        map.flyTo({
-          center: [lng, lat],
-          zoom: 16,
-          padding: { top: 40, bottom: 0, left: 0, right: 0 },
-        });
+      if (!map) return;
+
+      map.flyTo({
+        center: [lng, lat],
+        zoom: 16,
+        padding: { top: 40, bottom: 0, left: 0, right: 0 },
+      });
+
+      // 既存の現在地マーカーを削除
+      locationMarkerRef.current?.remove();
+
+      // 現在地マーカー（青い点）を作成
+      const el = document.createElement("div");
+      el.style.cssText = `
+        width: 18px; height: 18px; border-radius: 50%;
+        background: #3b82f6; border: 3px solid #fff;
+        box-shadow: 0 0 0 2px #3b82f6;
+        animation: location-pulse 2s ease-out infinite;
+      `;
+      locationMarkerRef.current = new maplibregl.Marker({ element: el })
+        .setLngLat([lng, lat])
+        .addTo(map);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sheetHeight]
@@ -922,6 +956,7 @@ export function MapView() {
     async (pin: Pin) => {
       await softDeletePin(repo, pin.id, getNodeId());
       await refreshLists();
+      debouncedSyncRef.current();
       showMessage(`「${pin.title}」をゴミ箱に移動しました`);
     },
     [refreshLists, showMessage]
@@ -932,6 +967,7 @@ export function MapView() {
       await dexiePhotoRepository.deleteByPinId(pin.id);
       await hardDeletePin(repo, pin.id);
       await refreshLists();
+      debouncedSyncRef.current();
       showMessage(`「${pin.title}」を完全削除しました`);
     },
     [refreshLists, showMessage]
@@ -943,6 +979,7 @@ export function MapView() {
       await hardDeletePin(repo, pin.id);
     }
     await refreshLists();
+    debouncedSyncRef.current();
     showMessage("ゴミ箱を空にしました");
   }, [deletedPins, refreshLists, showMessage]);
 
@@ -950,6 +987,7 @@ export function MapView() {
     async (pin: Pin) => {
       await restorePin(repo, pin.id, getNodeId());
       await refreshLists();
+      debouncedSyncRef.current();
       showMessage(`「${pin.title}」を復元しました`);
     },
     [refreshLists, showMessage]
@@ -973,6 +1011,7 @@ export function MapView() {
       });
       await refreshLists();
       setSelectedPin(null);
+      debouncedSyncRef.current();
       showMessage(`「${updated.title}」を更新しました`);
     },
     [refreshLists, showMessage]
@@ -994,6 +1033,7 @@ export function MapView() {
       setPins((prev) => [...prev, pinWithList]);
       setSelectedPin(pinWithList);
       setIsNewPin(true);
+      debouncedSyncRef.current();
       showMessage(`「${newPin.title}」のリストをコピーしました`);
     },
     [showMessage]
@@ -1158,25 +1198,26 @@ export function MapView() {
   const [cycleIndex, setCycleIndex] = useState(0);
 
   const handleTickerScrollEnd = useCallback(() => {
-    if (selectedPin) return;
     const messages = pins.length === 0 ? INTRO_MESSAGES : CYCLE_MESSAGES;
     setCycleIndex((i) => (i + 1) % messages.length);
-  }, [selectedPin, pins.length]);
+  }, [pins.length]);
 
   const { tickerLabel, tickerMessage } = useMemo(() => {
-    if (selectedPin)
-      return {
-        tickerLabel: "【ヒント】",
-        tickerMessage: "写真・コメント・マイタグで、このこだわりを丁寧に残してください",
-      };
     const messages = pins.length === 0 ? INTRO_MESSAGES : CYCLE_MESSAGES;
     const label = pins.length === 0 ? "【はじめに】" : "【ヒント】";
     return { tickerLabel: label, tickerMessage: messages[cycleIndex % messages.length] };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPin, pins.length, cycleIndex]);
+  }, [pins.length, cycleIndex]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <style>{`
+        @keyframes location-pulse {
+          0%   { box-shadow: 0 0 0 2px #3b82f6; }
+          60%  { box-shadow: 0 0 0 10px rgba(59,130,246,0); }
+          100% { box-shadow: 0 0 0 10px rgba(59,130,246,0); }
+        }
+      `}</style>
       <div ref={containerRef} style={{ width: "100%", height: `calc(100vh - ${sheetHeight}px)` }} />
       <MessageTicker
         message={tickerMessage}

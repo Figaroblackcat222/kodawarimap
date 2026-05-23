@@ -2,26 +2,26 @@
 
 ## 技術スタック
 
-| 領域           | 採用                                | 備考                                                       |
-| -------------- | ----------------------------------- | ---------------------------------------------------------- |
-| 言語           | TypeScript                          | 全レイヤー                                                 |
-| フロントエンド | React + Vite（SPA / PWA）           | SSR不要のローカルファースト                                |
-| 地図エンジン   | MapLibre GL JS v5                   | ベクタータイル＋動的スタイル切替                           |
-| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv10）                                |
-| オフライン     | Service Worker（vite-plugin-pwa）   | タイルキャッシュ／エリア保存                               |
-| バックエンド   | なし（MVPは100%クライアント）       | クラウド同期は将来                                         |
-| ベクタータイル | Protomaps PMTiles（自己ホスト）     | Cloudflare R2配信・`pmtiles` + `@protomaps/basemaps`で描画 |
-| ホスティング   | Cloudflare Pages + R2               | egress無料                                                 |
-| 設計パターン   | プラグマティック Clean Architecture | 4層・依存は内向き                                          |
-| Exif解析       | exifr                               | GPS・撮影情報・カメラ設定値を抽出                          |
-| 画像変換       | heic-to（libheif 1.21.2）           | HEIC/HEIF → JPEG 変換（全ブラウザ対応）                    |
-| ユニットテスト | Vitest                              | domain / application 層                                    |
-| E2Eテスト      | Playwright                          | 主要フロー検証                                             |
+| 領域           | 採用                                | 備考                                                                                          |
+| -------------- | ----------------------------------- | --------------------------------------------------------------------------------------------- |
+| 言語           | TypeScript                          | 全レイヤー                                                                                    |
+| フロントエンド | React + Vite（SPA / PWA）           | SSR不要のローカルファースト                                                                   |
+| 地図エンジン   | MapLibre GL JS v5                   | ベクタータイル＋動的スタイル切替                                                              |
+| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv12）                                                                   |
+| オフライン     | Service Worker（vite-plugin-pwa）   | タイルキャッシュ／エリア保存                                                                  |
+| バックエンド   | Cloudflare Workers + D1 + R2        | E2E暗号化マルチデバイス同期（詳細は [ADR-008](architecture-decisions/ADR-008-cloud-sync.md)） |
+| ベクタータイル | Protomaps PMTiles（自己ホスト）     | Cloudflare R2配信・`pmtiles` + `@protomaps/basemaps`で描画                                    |
+| ホスティング   | Cloudflare Pages + R2               | egress無料                                                                                    |
+| 設計パターン   | プラグマティック Clean Architecture | 4層・依存は内向き                                                                             |
+| Exif解析       | exifr                               | GPS・撮影情報・カメラ設定値を抽出                                                             |
+| 画像変換       | heic-to（libheif 1.21.2）           | HEIC/HEIF → JPEG 変換（全ブラウザ対応）                                                       |
+| ユニットテスト | Vitest                              | domain / application 層                                                                       |
+| E2Eテスト      | Playwright                          | 主要フロー検証                                                                                |
 
 ## 選定理由（要約）
 
 - **React + Vite**: MapLibre/Dexieのエコシステムが React 中心。ローカルファーストで SSR の恩恵がなく、Next.js は PWA 化を複雑化させるだけ。詳細は [ADR-001](architecture-decisions/ADR-001-frontend-stack.md)
-- **バックエンドなし**: MVP要件が「ログイン不要・ローカル完結」。YAGNI。詳細は [ADR-002](architecture-decisions/ADR-002-no-backend-mvp.md)
+- **バックエンドなし（MVP）→ Workers追加**: MVP完了後にマルチデバイス同期のため Cloudflare Workers + D1 + R2 を追加。E2E暗号化でサーバー側は復号不可。詳細は [ADR-002](architecture-decisions/ADR-002-no-backend-mvp.md) / [ADR-008](architecture-decisions/ADR-008-cloud-sync.md)
 - **Protomaps PMTiles**: オフラインキャッシュ権利・プライバシー・タイルサーバ不要が要件と完全合致。詳細は [ADR-003](architecture-decisions/ADR-003-vector-tile-source.md)
 - **Cloudflare Pages + R2**: 地図は高帯域、R2はegress無料。Protomaps公式推奨構成。詳細は [ADR-004](architecture-decisions/ADR-004-hosting.md)
 - **Clean Architecture**: Exif解析・ピンライフサイクル・ゴミ箱・オフライン計算が純粋ロジック。将来の公開サーフェス分離が自然に実現。詳細は [ADR-005](architecture-decisions/ADR-005-clean-architecture.md)
@@ -34,63 +34,102 @@
 src/
 ├── domain/                        # 純粋TS、依存ゼロ
 │   ├── entities/
-│   │   ├── pin.ts                 # Pin（+ thumbnailPhotoId・tag・reaction）, PinExif, Coordinates, createPin
+│   │   ├── pin.ts                 # Pin（+ hlc・thumbnailPhotoId・tag・reaction・shoppingItems）, PinExif, Coordinates, createPin
+│   │   ├── photo.ts               # Photo（+ hlc・syncedAt・comment）
 │   │   ├── category.ts            # Category, PRESET_CATEGORIES, DEFAULT_CATEGORY
-│   │   └── photo.ts               # Photo（id, pinId, blob, mimeType, comment, createdAt）
+│   │   └── sync-state.ts          # SyncStatus = 'idle'|'syncing'|'error'|'offline'|'unauthenticated'
 │   └── value-objects/
-│       └── exif-data.ts           # ExifData（パーサーの出力型）
+│       ├── exif-data.ts           # ExifData（パーサーの出力型）
+│       └── hlc.ts                 # HLC型（physical/logical/nodeId）・createHlc/nextHlc/mergeHlc/compareHlc
 ├── application/                   # Use Cases + ports（interface）
 │   ├── ports/
-│   │   ├── pin-repository.ts      # PinRepository インターフェース
-│   │   └── photo-repository.ts    # PhotoRepository インターフェース
+│   │   ├── pin-repository.ts      # PinRepository（findModifiedSince追加）
+│   │   ├── photo-repository.ts    # PhotoRepository（findModifiedSince・markSynced・findUnsyncedPhotos追加）
+│   │   ├── crypto-service.ts      # CryptoService（deriveKey/encrypt/decrypt/encryptBinary/decryptBinary/generateSalt）
+│   │   ├── sync-repository.ts     # SyncRepository（認証・fetchPinsSince・pushPin・fetchPhotoList・pushPhotoBinary・fetchPhotoBinary）
+│   │   └── sync-queue-repository.ts # SyncQueueRepository（enqueue/peekDue/markRetry/remove/coalesce）
 │   └── use-cases/
-│       ├── add-pin.ts             # ピン追加（Exif含む）
-│       ├── update-pin.ts          # タイトル・カテゴリー・コメント・URL・videoUrl・Exif・reaction・tag・location・thumbnailPhotoId更新
-│       ├── soft-delete-pin.ts     # 論理削除（ゴミ箱へ）
-│       ├── restore-pin.ts         # ゴミ箱から復元
-│       ├── hard-delete-pin.ts     # 物理削除（ゴミ箱内のピンを完全削除）
+│       ├── add-pin.ts             # ピン追加（HLC初期化含む）
+│       ├── update-pin.ts          # タイトル・カテゴリー・コメント・URL・videoUrl・Exif・reaction・tag・location・thumbnailPhotoId・HLC更新
+│       ├── soft-delete-pin.ts     # 論理削除（ゴミ箱へ・HLC更新）
+│       ├── restore-pin.ts         # ゴミ箱から復元（HLC更新）
+│       ├── hard-delete-pin.ts     # 物理削除
 │       ├── add-photo.ts           # ピンへ写真を追加
-│       └── delete-photo.ts        # 写真を削除
+│       ├── delete-photo.ts        # 写真を削除
+│       ├── pull-sync.ts           # サーバー→IndexedDB（HLC LWW マージ・復号・tombstone処理）
+│       ├── push-sync.ts           # IndexedDB→サーバー（暗号化push・失敗時SyncQueueへenqueue・写真push含む）
+│       └── pull-photo-sync.ts     # 全ピン分のR2写真を一括ダウンロード（sync時に自動実行）
 ├── infrastructure/                # port の実装（adapter）
 │   ├── persistence/
-│   │   ├── db.ts                  # KodawarimapDB（Dexie, v10スキーマ: pins + photos。event→tagリネーム・thumbnailPhotoId・photo.comment追加）
-│   │   ├── dexie-pin-repository.ts # PinRepository 実装
-│   │   └── dexie-photo-repository.ts # PhotoRepository 実装
+│   │   ├── db.ts                  # KodawarimapDB（Dexie v4, v12スキーマ: pins/photosにhlc追加・sync_queue新規）
+│   │   ├── dexie-pin-repository.ts   # PinRepository実装（findModifiedSince追加）
+│   │   ├── dexie-photo-repository.ts # PhotoRepository実装（findModifiedSince・markSynced・findUnsyncedPhotos追加）
+│   │   └── dexie-sync-queue-repository.ts # SyncQueueRepository実装（coalesceで重複排除）
+│   ├── sync/
+│   │   ├── web-crypto-service.ts  # CryptoService実装（PBKDF2 600K + AES-256-GCM。バイナリは先頭12bytesがIV）
+│   │   ├── auth-service.ts        # JWT管理・自動リフレッシュ・並行リフレッシュは同一Promise共有
+│   │   ├── cloudflare-sync-repository.ts # Workers API実装（401時自動リフレッシュ・写真はmultipart）
+│   │   ├── tab-coordinator.ts     # Web Locks APIリーダー選出・BroadcastChannel完了通知
+│   │   └── node-id.ts             # localStorage: kdm:node-id でデバイスID管理
 │   ├── exif/
 │   │   └── exif-parser.ts         # exifr を使ったExif解析
 │   ├── image/
 │   │   ├── normalize-photo.ts     # HEIC/HEIF → JPEG 変換（heic-to）
-│   │   └── write-exif.ts          # JPEGへのEXIF書き戻し（piexifjs）+ ダウンロード実行（showSaveFilePicker / Web Share API / <a download>）
+│   │   └── write-exif.ts          # JPEGへのEXIF書き戻し（piexifjs）+ ダウンロード実行
 │   ├── map/
-│   │   ├── use-map.ts             # MapLibre初期化フック（PMTilesプロトコル登録・click/dblclick / スタイル切替）。マーカー長押し検出は map-view.tsx 内 createMarker で実装
-│   │   └── protomaps-style.ts     # Protomapsスタイル生成（light/dark/grayscaleテーマ・日本語ラベル・R2 PMTilesソース・roads_onewayレイヤーのicon-imageを除去（MapLibre「arrow」画像警告抑止））
+│   │   ├── use-map.ts             # MapLibre初期化フック（PMTilesプロトコル登録・click/dblclick / スタイル切替）
+│   │   └── protomaps-style.ts     # Protomapsスタイル生成（light/dark/grayscale・日本語ラベル・R2ソース）
 │   ├── poi/
-│   │   ├── r2-poi-client.ts       # R2から poi/z8/{x}/{y}.geojson を取得（404は null で返す）
-│   │   ├── overpass-client.ts     # Overpass API呼び出し・名前付きPOIのみ取得・OSMタグ→categoryIdマッピング（12カテゴリー）・GeoJSON変換
-│   │   ├── poi-loader.ts          # ローカルキャッシュ→R2タイル→Overpassの優先順で取得（z8タイル単位でlocalStorageキャッシュ）
-│   │   └── tile-utils.ts          # lngLatToTile / tileToBbox（z8タイル座標計算ユーティリティ）
+│   │   ├── r2-poi-client.ts       # R2から poi/z8/{x}/{y}.geojson を取得
+│   │   ├── overpass-client.ts     # Overpass API・OSMタグ→categoryIdマッピング（12カテゴリー）
+│   │   ├── poi-loader.ts          # ローカルキャッシュ→R2→Overpass優先順（localStorageキャッシュ）
+│   │   └── tile-utils.ts          # lngLatToTile / tileToBbox
 │   └── cache/                     # TileCacheAdapter（未実装）
 └── presentation/                  # React コンポーネント / hooks
-    ├── components/
-    │   ├── map-view.tsx            # メインビュー（地図 + 全UIの統合・GPS仮置きモード・マージ確認・マーカー長押し削除・カテゴリー絵文字バッジ（白丸中央配置・font-size:22px・全ピン常時表示）・リッチツールチップ遅延サムネイル（写真2枚以上で枚数バッジ）・POI取得中インジケーター（地図左下スピナー付きpill）・POI起動時ロード（loadPoiForStartup: loadedTilesRefを汚染しない専用関数）・ピン作成時z8タイルPOI取得（loadPoiForPin: 二重取得防止）・汎用カテゴリー選択時はPOI非表示（applyPoiFilter: general→空配列）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin選択中はマーカーをvisibility:hiddenで非表示（詳細シートとの重なり防止）・filteredPinIdsによる地図マーカーと一覧フィルターの同期（handleFilteredPinsChangeをuseCallback([pins])でメモ化・フィルター選択時の無限ループ防止）・tagKeywordsをuseMemoで集計しPinListSheet/PinDetailSheetに渡す・tickerLabel/tickerMessageをコンテキスト別に算出（CYCLE_MESSAGES 35件・INTRO_MESSAGES 5件）・handleTickerScrollEndコールバックでサイクル管理（setInterval廃止）・flyTo全箇所でpadding 4辺明示（top:40・bottom:0またはdetailOverlap・left:0・right:0）・設定ボタン top:48 right:8・geocoderEnabled/handleGeocoderEnabledChange状態管理）
-    │   ├── photo-upload-button.tsx # 写真追加ボタン（左下配置・bottom prop でシートに追従・スマホ・PCともに「写真から記録」テキスト常時表示・padding:8px 12px・fontSize:13）
-    │   ├── category-selector.tsx   # カテゴリー選択ピル（地図スタイル切替・固定白背景・タップで2列グリッド展開・選択後に縮小・カテゴリー追加時は行が自動増加）
-    │   ├── pin-list-sheet.tsx      # ボトムシート（11段階スナップ44px/25%〜65%5%刻み/85%・展開縮小ボタンは44px↔65%トグル・件数表示はactivePins.length（フィルター適用後）・ピルハンドル下に全件/表示範囲トグル（onListScopeChangeコールバック経由）・一覧・フィルター・ソート。フィルターセクションボタン4色: カテゴリー=青 #3b82f6（LayoutGrid）・リアクション=緑 #22c55e（Smile）・マイタグ=紫 #8b5cf6（Tag）・撮影日=橙 #f59e0b（Calendar）。SectionFilterButtonのpadding:10px 6px・FilterPillのpadding:8px 12px（タッチターゲット確保）。ドラッグに8pxデッドゾーン（8px超でsetPointerCapture）。フィルター展開時にシートが45%未満なら45%に自動拡張（sheetHeightRef使用・openSection/isFilterBarOpen変化時のみ発火）。フィルターpillsはflexWrap折り返し表示・タグフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリック閉じ）・フィルター適用中はFilterXアイコンをフィルターボタン左隣に表示・撮影日フィルターはtoLocalDateStr()でローカルタイムゾーン基準・今週=日曜起点・今月=1日・今年=1月1日。タイトル行にreaction絵文字インライン表示・撮影日時右隣にtag表示・キーワード検索がtag対象・pin.thumbnailPhotoIdでサムネイル選択・onFilteredPinsChangeで地図マーカーフィルターと同期）
-    │   ├── pin-detail-sheet.tsx    # ピン詳細・編集・写真プレビュー・関連動画リンク（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム（写真コメントをlightboxに表示）・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所フィールド・ダウンロード許可トグル・写真一括追加・各写真に個別コメント入力（photoRepo.updateComment）・★/☆ボタンでサムネ選択（thumbnailPhotoId）・isDirtyによる保存ボタン活性化制御（isNew=trueは常時活性）・pendingAddIdsで閉じる時の未保存写真自動削除・マイタグ入力欄（コメント下）にドロップダウンサジェスト・フッター「閉じる」ボタン）
-    │   ├── cluster-sheet.tsx       # 同座標ピン一覧シート（クラスターマーカークリック時）
-    │   ├── current-location-button.tsx # 現在地flyToボタン（左側配置 top:160 left:8）
-    │   ├── settings-sheet.tsx      # 設定画面（地図情報更新（POIキャッシュclr+SW更新チェック）・エクスポート・インポート・ゴミ箱保持期間・ソート順・地図検索ON/OFF（Nominatim同意ダイアログ付き）・ガイドメッセージON/OFF＋折りたたみ解除ボタン（localStorage: ticker-collapsed）・昼夜自動テーマ切り替えトグル＋夜間時刻設定）
-    │   ├── pwa-update-dialog.tsx   # PWA更新通知ダイアログ（useRegisterSW・新SW待機時に表示・「後で」は1時間スキップ・タブ再オープン時はスヌーズ無視で即表示・visibilitychange+タイマーで再表示（スヌーズ尊重））
-    │   ├── message-ticker.tsx      # ガイドメッセージティッカー（height:40px・font-size:14px・左端に固定ラベル（【はじめに】【ヒント】）・静止3秒→左スクロール1回→onScrollEndで次メッセージのサイクル・静止中は左12px マージン・×で左端の▶ボタンに折りたたみ（再タップで展開）・localStorage: ticker-enabled/ticker-collapsed）
-    │   └── geocoder-search.tsx     # 地名・ランドマーク検索（Nominatim・収縮/展開ボタン top:48 right:52・展開時 top:48 left:50 right:52（ズームコントロール・設定ボタン非重複）・debounce 400ms・flyTo zoom:14・© OpenStreetMap contributors）
+    ├── hooks/
+    │   ├── use-sync.ts            # pull+push+pullPhotoSyncをtabCoordinator経由で実行・syncState管理・sync完了後refreshLists通知
+    │   └── use-key-derivation.ts  # パスフレーズ→CryptoKey導出（salt: localStorage kdm:sync-salt）
+    └── components/
+        ├── map-view.tsx            # メインビュー（useSync統合・encryptionKey state・起動時SyncSetupSheet自動表示・sync完了後refreshLists()でUI再描画・設定ボタン top:48 right:8）
+        │                           # 同期タイミング: 起動時1回・オンライン復帰時・保存/削除/復元後3秒デバウンス・30分定期ポーリング
+        │                           # 現在地マーカー: locationMarkerRef 管理・青点(18px)＋2秒パルスアニメーション
+        ├── sync-setup-sheet.tsx    # 同期セットアップ（新規登録/ログイン/パスフレーズ再入力3モード・パスフレーズ紛失警告文）
+        ├── sync-status-indicator.tsx # 同期状態表示（top:92 right:8・設定ボタン下）
+        │                           # idle=緑チェック（タップで即時同期）/syncing=スピナー/error=橙三角（タップ再試行）/offline=灰WifiOff
+        │                           # idle/error のみクリック可・unauthenticated は非表示
+        ├── photo-upload-button.tsx # 写真追加ボタン（左下・bottom: sheetHeight+8・テキスト常時表示）
+        ├── category-selector.tsx   # カテゴリー選択ピル（タップで2列グリッド展開）
+        ├── pin-list-sheet.tsx      # ボトムシート（11段階スナップ・フィルター・ソート・ショッピングバッジ）
+        ├── pin-detail-sheet.tsx    # ピン詳細・編集・lightbox（syncRepository/encryptionKey props経由で遅延写真ロード）
+        ├── cluster-sheet.tsx       # 同座標ピン一覧シート
+        ├── current-location-button.tsx # 現在地flyToボタン（top:160 left:8）・取得後に flyTo＋青点マーカーを地図上に表示
+        ├── settings-sheet.tsx      # 設定（地図・エクスポート・インポート・同期セクション・バックアップ30日警告）
+        ├── pwa-update-dialog.tsx   # PWA更新通知ダイアログ
+        ├── message-ticker.tsx      # ガイドメッセージティッカー（常時サイクル・ピン選択中も同じメッセージを流し続ける）
+        └── geocoder-search.tsx     # Nominatim地名検索（top:48 right:52）
 ```
 
 ```
+workers/                           # Cloudflare Workers バックエンド
+├── src/
+│   ├── index.ts                   # ルーティング + scheduled（tombstone・token期限切れ削除）
+│   ├── types.ts                   # Env型（DB/PHOTOS/JWT_SECRET/CORS_ORIGIN）
+│   ├── lib/
+│   │   ├── jwt.ts                 # HS256 sign/verify
+│   │   └── hlc.ts                 # サーバー側HLC計算
+│   ├── middleware/
+│   │   ├── cors.ts                # CORS（localhost常時許可・CORS_ORIGINで本番許可）
+│   │   └── auth.ts                # JWT検証ミドルウェア
+│   └── routes/
+│       ├── auth.ts                # 認証API（register/login/refresh/logout・ブルートフォース対策）
+│       ├── pins.ts                # ピン同期API（since取得・UPSERT・tombstone）
+│       └── photos.ts              # 写真API（list・R2アップロード/取得/削除）
+├── migrations/
+│   └── 0001_initial.sql           # D1スキーマ（users・pins_sync・photos_sync・refresh_tokens・login_attempts）
+└── wrangler.toml                  # DB: kodawarimap-sync・R2: kodawarimap-photos・cron: 0 3 * * *
 scripts/
-├── build-poi-tiles-local.mjs  # ローカルOSM PBFからPOI z8タイルを一括生成（osmium-tool使用・Overpass API不使用・全12カテゴリー・日本全国を数分で処理）
-│                              # 使い方: brew install osmium-tool → curl -L -o japan-latest.osm.pbf https://download.geofabrik.de/asia/japan-latest.osm.pbf → node scripts/build-poi-tiles-local.mjs
-└── fetch-poi-tiles.mjs        # Overpass APIからz8タイル単位でPOIを取得（カテゴリー別クエリ・overpass.private.coffee・--countフラグ対応・504時はbbox4分割でリトライ）
-    └── hooks/                      # カスタムフック（useMediaQuery）
+├── build-poi-tiles-local.mjs  # ローカルOSM PBFからPOI z8タイルを一括生成
+└── fetch-poi-tiles.mjs        # Overpass APIからz8タイル単位でPOI取得
 ```
 
 **依存の向き**: presentation → infrastructure → application → domain（内向きのみ。内は外を知らない）。
@@ -122,8 +161,18 @@ interface Pin {
   tag?: string; // マイタグ（旅行名・行事名等の任意ラベル。v9の event からリネーム）
   location?: string; // 撮影場所（地名）。PMTilesのplacesレイヤーから自動取得・任意編集可
   thumbnailPhotoId?: string; // 一覧サムネイルとして使う写真ID（未指定時は先頭写真）
+  allowPhotoDownload?: boolean; // 写真ダウンロード許可フラグ
+  shoppingItems?: ShoppingItem[]; // ショッピングカテゴリー専用・買い物リスト
+  hlc: HLC; // Hybrid Logical Clock（マルチデバイス同期の順序保証）
   createdAt: Date;
   deletedAt?: Date; // ゴミ箱: 設定日時。undefined = アクティブ
+}
+
+interface ShoppingItem {
+  id: string;
+  name: string;
+  checked: boolean;
+  photoId?: string; // 参照写真ID（メインギャラリーから除外）
 }
 ```
 
@@ -152,36 +201,45 @@ interface Photo {
     originalFileSize?: number; // bytes
     originalLastModified?: number; // Unix timestamp ms
   };
+  shoppingItemId?: string; // ShoppingItem紐づき写真（メインギャラリーから除外）
+  hlc: HLC; // Hybrid Logical Clock（マルチデバイス同期の順序保証）
+  syncedAt?: Date; // R2アップロード完了時刻（未設定 = 未同期）
 }
 ```
 
-### IndexedDB スキーマ（v10）
+### IndexedDB スキーマ（v12）
 
 **pins テーブル**  
-インデックス: `id, createdAt, deletedAt, categoryId`  
-フィールド: Exif全フィールド（フラット保存）＋ `comment` ＋ `url` ＋ `videoUrl` ＋ `takenAtEstimated` ＋ `reaction`（任意）＋ `tag`（任意・マイタグ。v9の `event` からリネーム）＋ `location`（任意・撮影場所地名）＋ `thumbnailPhotoId`（任意・一覧サムネイル写真ID）
+インデックス: `id, createdAt, deletedAt, categoryId, hlcPhysical`  
+フィールド: Exif全フィールド（フラット保存）＋ `comment` ＋ `url` ＋ `videoUrl` ＋ `takenAtEstimated` ＋ `reaction`（任意）＋ `tag`（任意・マイタグ。v9の `event` からリネーム）＋ `location`（任意・撮影場所地名）＋ `thumbnailPhotoId`（任意・一覧サムネイル写真ID）＋ `shoppingItemsJson`（ShoppingItem配列のJSON文字列）＋ `hlcPhysical / hlcLogical / hlcNodeId / syncSchemaVersion`（v12追加・HLC同期フィールド）
 
 **photos テーブル**  
-インデックス: `id, pinId, createdAt`  
-写真 Blob + Exifフィールド（`exifTakenAt`・`exifTakenAtEstimated` 等フラット）+ ファイル情報（`originalFileName` 等）+ `comment`（任意・写真個別コメント）を pinId で紐づけて保存。完全削除時は紐づく photos も一括削除。`restore()` メソッドで元の ID を保持したままインポート復元が可能。
+インデックス: `id, pinId, createdAt, hlcPhysical`  
+写真 Blob + Exifフィールド（`exifTakenAt`・`exifTakenAtEstimated` 等フラット）+ ファイル情報（`originalFileName` 等）+ `comment`（任意・写真個別コメント）+ `shoppingItemId`（任意・ShoppingItem紐づき）+ `hlcPhysical / hlcLogical / hlcNodeId / syncedAt / syncSchemaVersion`（v12追加）を pinId で紐づけて保存。完全削除時は紐づく photos も一括削除。`restore()` メソッドで元の ID を保持したままインポート復元が可能。
+
+**sync_queue テーブル**（v12新規）  
+インデックス: `id, recordId, nextAttemptAt`  
+フィールド: `type('pin'|'photo'), recordId, operation('put'|'delete'), retries, nextAttemptAt, createdAt, lastError`  
+同一 recordId は coalesce（最新操作のみ保持）。指数バックオフ（最大5回・失敗後は error 状態へ）。
 
 ### カテゴリープリセット
 
-表示順・GPS マージ閾値（11カテゴリー）：
+表示順・GPS マージ閾値（12カテゴリー）：
 
-| id            | name         | emoji | 地図スタイル        | GPS閾値 |
-| ------------- | ------------ | ----- | ------------------- | ------- |
-| general       | 汎用         | 🗺️    | Protomaps light     | 50m     |
-| food          | 食事         | 🍽️    | Protomaps light     | 5m      |
-| hiking        | 登山         | ⛰️    | Protomaps grayscale | 100m    |
-| fishing       | 釣り         | 🎣    | Protomaps light     | 30m     |
-| travel        | 旅行／観光   | 🧳    | Protomaps light     | 50m     |
-| theme_park    | テーマパーク | 🎡    | Protomaps light     | 50m     |
-| shrine_temple | 神社仏閣     | ⛩️    | Protomaps light     | 30m     |
-| camping       | キャンプ     | ⛺    | Protomaps grayscale | 100m    |
-| onsen         | 温泉         | ♨️    | Protomaps light     | 30m     |
-| beach         | 海・ビーチ   | 🏖️    | Protomaps light     | 50m     |
-| nature        | 公園・自然   | 🌿    | Protomaps grayscale | 50m     |
+| id            | name         | emoji | 地図スタイル        | GPS閾値 | 備考                           |
+| ------------- | ------------ | ----- | ------------------- | ------- | ------------------------------ |
+| general       | 汎用         | 🗺️    | Protomaps light     | 50m     |                                |
+| food          | 食事         | 🍽️    | Protomaps light     | 5m      |                                |
+| hiking        | 登山         | ⛰️    | Protomaps grayscale | 100m    |                                |
+| fishing       | 釣り         | 🎣    | Protomaps light     | 30m     |                                |
+| travel        | 旅行／観光   | 🧳    | Protomaps light     | 50m     |                                |
+| theme_park    | テーマパーク | 🎡    | Protomaps light     | 50m     |                                |
+| shrine_temple | 神社仏閣     | ⛩️    | Protomaps light     | 30m     |                                |
+| camping       | キャンプ     | ⛺    | Protomaps grayscale | 100m    |                                |
+| onsen         | 温泉         | ♨️    | Protomaps light     | 30m     |                                |
+| beach         | 海・ビーチ   | 🏖️    | Protomaps light     | 50m     |                                |
+| nature        | 公園・自然   | 🌿    | Protomaps grayscale | 50m     |                                |
+| shopping      | ショッピング | 🛍️    | Protomaps light     | 30m     | 買い物リスト機能付き（専用UI） |
 
 lightカテゴリーは「昼夜自動テーマ」ON・夜間時刻帯のとき Protomaps dark に切り替わる（grayscaleカテゴリーは常時固定）。
 
