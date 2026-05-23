@@ -17,8 +17,6 @@ import {
 } from "lucide-react";
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { PhotoRepository } from "@application/ports/photo-repository";
-import { lngLatToTile, tileToBbox } from "../../infrastructure/poi/tile-utils";
-import { fetchPoiFromOverpass } from "../../infrastructure/poi/overpass-client";
 import { TICKER_ENABLED_KEY, TICKER_COLLAPSED_KEY } from "./message-ticker";
 
 interface Props {
@@ -62,10 +60,6 @@ export function SettingsSheet({
 }: Props) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [poiExportProgress, setPoiExportProgress] = useState<{
-    current: number;
-    total: number;
-  } | null>(null);
   const [mapUpdateStatus, setMapUpdateStatus] = useState<"idle" | "checking" | "done" | "error">(
     "idle"
   );
@@ -110,52 +104,6 @@ export function SettingsSheet({
     } catch {
       setMapUpdateStatus("error");
       setTimeout(() => setMapUpdateStatus("idle"), 3000);
-    }
-  };
-
-  const handleExportPoiGeoJson = async () => {
-    setIsExporting(true);
-    try {
-      const pins = await pinRepo.findAll();
-      if (pins.length === 0) {
-        setInfoDialog({ type: "error", message: "ピンがありません。先にピンを追加してください。" });
-        return;
-      }
-
-      const tileSet = new Map<string, { x: number; y: number }>();
-      for (const pin of pins) {
-        const { x, y } = lngLatToTile(pin.coordinates.lng, pin.coordinates.lat, 8);
-        tileSet.set(`${x}:${y}`, { x, y });
-      }
-      const tiles = Array.from(tileSet.values());
-      const total = tiles.length;
-
-      const { default: JSZip } = await import("jszip");
-      const zip = new JSZip();
-
-      for (let i = 0; i < tiles.length; i++) {
-        const { x, y } = tiles[i];
-        setPoiExportProgress({ current: i + 1, total });
-        const bbox = tileToBbox(x, y, 8);
-        try {
-          const features = await fetchPoiFromOverpass(bbox);
-          zip.file(
-            `poi/z8/${x}/${y}.geojson`,
-            JSON.stringify({ type: "FeatureCollection", features })
-          );
-        } catch (err) {
-          console.warn(`POI取得失敗 tile(${x},${y}):`, err);
-        }
-        if (i < tiles.length - 1) {
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-      }
-
-      const zipBlob = await zip.generateAsync({ type: "blob" });
-      downloadBlob(zipBlob, "poi-tiles.zip");
-    } finally {
-      setIsExporting(false);
-      setPoiExportProgress(null);
     }
   };
 
