@@ -12,6 +12,7 @@ import { dexiePhotoRepository } from "@infrastructure/persistence/dexie-photo-re
 import { dexieSyncQueueRepository } from "@infrastructure/persistence/dexie-sync-queue-repository";
 import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
 import { pullSync } from "@application/use-cases/pull-sync";
+import { pullPhotoSync } from "@application/use-cases/pull-photo-sync";
 import { pushSync } from "@application/use-cases/push-sync";
 import { authService } from "@infrastructure/sync/auth-service";
 
@@ -97,6 +98,15 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
           dexieSyncQueueRepository,
           currentHlc,
           dexiePhotoRepository
+        );
+
+        // Pull Photos: サーバーにあってローカルにない写真を一括ダウンロード
+        await pullPhotoSync(
+          cloudflareSyncRepository,
+          dexiePinRepository,
+          dexiePhotoRepository,
+          webCryptoService,
+          encryptionKey
         );
 
         // 同期完了を他タブに通知
