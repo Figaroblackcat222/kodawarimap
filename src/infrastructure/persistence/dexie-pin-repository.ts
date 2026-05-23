@@ -1,5 +1,6 @@
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { Pin, PinId, PinReaction, ShoppingItem } from "@domain/entities/pin";
+import type { HLC } from "@domain/value-objects/hlc";
 import { db, type PinRecord } from "./db";
 
 function recordToPin(r: PinRecord): Pin {
@@ -11,6 +12,12 @@ function recordToPin(r: PinRecord): Pin {
     r.exposureTime != null ||
     r.focalLength != null ||
     r.iso != null;
+
+  const hlc: HLC = {
+    physical: r.hlcPhysical ?? (r.createdAt ? new Date(r.createdAt).getTime() : 0),
+    logical: r.hlcLogical ?? 0,
+    nodeId: r.hlcNodeId ?? "legacy",
+  };
 
   return {
     id: r.id,
@@ -40,6 +47,7 @@ function recordToPin(r: PinRecord): Pin {
           iso: r.iso,
         }
       : undefined,
+    hlc,
     createdAt: r.createdAt,
     deletedAt: r.deletedAt,
   };
@@ -47,6 +55,12 @@ function recordToPin(r: PinRecord): Pin {
 
 export const dexiePinRepository: PinRepository = {
   async save(pin: Pin): Promise<void> {
+    // hlc が未設定（旧フォーマットのインポート等）の場合はデフォルト値を付与する
+    const hlc: HLC = pin.hlc ?? {
+      physical: pin.createdAt ? pin.createdAt.getTime() : Date.now(),
+      logical: 0,
+      nodeId: "imported",
+    };
     await db.pins.put({
       id: pin.id,
       lng: pin.coordinates.lng,
@@ -73,6 +87,10 @@ export const dexiePinRepository: PinRepository = {
       exposureTime: pin.exif?.exposureTime,
       focalLength: pin.exif?.focalLength,
       iso: pin.exif?.iso,
+      hlcPhysical: hlc.physical,
+      hlcLogical: hlc.logical,
+      hlcNodeId: hlc.nodeId,
+      syncSchemaVersion: 1,
       createdAt: pin.createdAt,
       deletedAt: pin.deletedAt,
     });
@@ -88,12 +106,22 @@ export const dexiePinRepository: PinRepository = {
     return records.filter((r) => r.deletedAt != null).map(recordToPin);
   },
 
-  async softDelete(id: PinId): Promise<void> {
-    await db.pins.update(id, { deletedAt: new Date() });
+  async softDelete(id: PinId, hlc: HLC): Promise<void> {
+    await db.pins.update(id, {
+      deletedAt: new Date(),
+      hlcPhysical: hlc.physical,
+      hlcLogical: hlc.logical,
+      hlcNodeId: hlc.nodeId,
+    });
   },
 
-  async restore(id: PinId): Promise<void> {
-    await db.pins.update(id, { deletedAt: undefined });
+  async restore(id: PinId, hlc: HLC): Promise<void> {
+    await db.pins.update(id, {
+      deletedAt: undefined,
+      hlcPhysical: hlc.physical,
+      hlcLogical: hlc.logical,
+      hlcNodeId: hlc.nodeId,
+    });
   },
 
   async hardDelete(id: PinId): Promise<void> {
@@ -103,5 +131,16 @@ export const dexiePinRepository: PinRepository = {
   async purgeExpired(retentionDays = 30): Promise<void> {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
     await db.pins.filter((r) => r.deletedAt != null && r.deletedAt < cutoff).delete();
+  },
+
+  async findModifiedSince(hlcPhysical: number, hlcLogical: number): Promise<Pin[]> {
+    const records = await db.pins
+      .filter(
+        (r) =>
+          r.hlcPhysical > hlcPhysical ||
+          (r.hlcPhysical === hlcPhysical && r.hlcLogical > hlcLogical)
+      )
+      .toArray();
+    return records.map(recordToPin);
   },
 };

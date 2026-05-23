@@ -10,6 +10,8 @@ import type { PhotoExif, PhotoFileInfo } from "@domain/entities/photo";
 import { parseExif } from "@infrastructure/exif/exif-parser";
 import { dexiePinRepository } from "@infrastructure/persistence/dexie-pin-repository";
 import { addPin } from "@application/use-cases/add-pin";
+import { createHlc } from "@domain/value-objects/hlc";
+import { getNodeId } from "@infrastructure/sync/node-id";
 import { softDeletePin } from "@application/use-cases/soft-delete-pin";
 import { restorePin } from "@application/use-cases/restore-pin";
 import { hardDeletePin } from "@application/use-cases/hard-delete-pin";
@@ -27,6 +29,12 @@ import { SettingsSheet } from "./settings-sheet";
 import { MessageTicker } from "./message-ticker";
 import { GeocoderSearch } from "./geocoder-search";
 import { Settings } from "lucide-react";
+import { useSync } from "@presentation/hooks/use-sync";
+import { SyncSetupSheet } from "./sync-setup-sheet";
+import { SyncStatusIndicator } from "./sync-status-indicator";
+import { authService } from "@infrastructure/sync/auth-service";
+import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
+import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
 
 const repo = dexiePinRepository;
 
@@ -475,6 +483,11 @@ export function MapView() {
     () => localStorage.getItem(GEOCODER_ENABLED_KEY) === "true"
   );
 
+  // 同期
+  const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null);
+  const [showSyncSetup, setShowSyncSetup] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+
   const tagKeywords = useMemo(() => {
     const set = new Set<string>();
     for (const p of pins) {
@@ -482,6 +495,24 @@ export function MapView() {
     }
     return [...set].sort();
   }, [pins]);
+
+  // 同期フック
+  const { syncState, triggerSync } = useSync({ encryptionKey });
+
+  // 同期完了時に lastSyncAt を更新
+  useEffect(() => {
+    if (syncState === "idle" && encryptionKey) {
+      setLastSyncAt(new Date());
+    }
+  }, [syncState, encryptionKey]);
+
+  // 起動時チェック: ログイン済み && 鍵なし → セットアップシートを開く
+  useEffect(() => {
+    if (authService.isLoggedIn() && !encryptionKey) {
+      setShowSyncSetup(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSheetHeightChange = useCallback((h: number) => {
     setSheetHeight(h);
@@ -620,7 +651,7 @@ export function MapView() {
       const map = mapRef.current;
       const placeName = map ? getPlaceName(map, lng, lat) : null;
       const title = placeName ?? `ピン ${pins.length + 1}`;
-      let pin = await addPin(repo, { lng, lat }, title, category.id);
+      let pin = await addPin(repo, { lng, lat }, title, createHlc(getNodeId()), category.id);
       if (placeName) {
         pin = { ...pin, location: placeName };
         await repo.save(pin);
@@ -780,7 +811,14 @@ export function MapView() {
     const placeName = map ? getPlaceName(map, lng, lat) : null;
     const resolvedTitle = titleIsFile && placeName ? placeName : title;
     try {
-      let pin = await addPin(repo, { lng, lat }, resolvedTitle, categoryId, pinExif);
+      let pin = await addPin(
+        repo,
+        { lng, lat },
+        resolvedTitle,
+        createHlc(getNodeId()),
+        categoryId,
+        pinExif
+      );
       if (placeName || shoppingItems) {
         pin = {
           ...pin,
@@ -879,7 +917,7 @@ export function MapView() {
 
   const handleDelete = useCallback(
     async (pin: Pin) => {
-      await softDeletePin(repo, pin.id);
+      await softDeletePin(repo, pin.id, getNodeId());
       await refreshLists();
       showMessage(`「${pin.title}」をゴミ箱に移動しました`);
     },
@@ -907,7 +945,7 @@ export function MapView() {
 
   const handleRestore = useCallback(
     async (pin: Pin) => {
-      await restorePin(repo, pin.id);
+      await restorePin(repo, pin.id, getNodeId());
       await refreshLists();
       showMessage(`「${pin.title}」を復元しました`);
     },
@@ -945,6 +983,7 @@ export function MapView() {
         repo,
         sourcePin.coordinates,
         sourcePin.title,
+        createHlc(getNodeId()),
         sourcePin.categoryId
       );
       const pinWithList = { ...newPin, shoppingItems: items };
@@ -1144,6 +1183,11 @@ export function MapView() {
       {geocoderEnabled && <GeocoderSearch map={mapRef.current} />}
       <PhotoUploadButton onFile={handlePhoto} loading={isProcessing} bottom={sheetHeight + 8} />
       <CategorySelector selected={category} onChange={setCategory} bottom={sheetHeight + 8} />
+
+      {/* 同期ステータスインジケーター（ログイン済み時のみ） */}
+      {authService.isLoggedIn() && (
+        <SyncStatusIndicator syncState={syncState} onRetry={triggerSync} />
+      )}
 
       {/* 設定ボタン */}
       <button
@@ -1363,6 +1407,9 @@ export function MapView() {
           onCreateCopy={(items) => handleCreateCopyFromPin(selectedPin, items)}
           sheetHeight={sheetHeight}
           tagKeywords={tagKeywords}
+          syncRepository={encryptionKey ? cloudflareSyncRepository : undefined}
+          encryptionKey={encryptionKey ?? undefined}
+          cryptoService={encryptionKey ? webCryptoService : undefined}
         />
       )}
       {clusterPins && (
@@ -1394,8 +1441,24 @@ export function MapView() {
           onNightEndChange={handleNightEndChange}
           geocoderEnabled={geocoderEnabled}
           onGeocoderEnabledChange={handleGeocoderEnabledChange}
+          syncState={syncState}
+          onTriggerSync={triggerSync}
+          onOpenSyncSetup={() => {
+            setIsSettingsOpen(false);
+            setShowSyncSetup(true);
+          }}
+          lastSyncAt={lastSyncAt}
+          hasSyncKey={!!encryptionKey}
         />
       )}
+      <SyncSetupSheet
+        isOpen={showSyncSetup}
+        onClose={() => setShowSyncSetup(false)}
+        onSuccess={(key) => {
+          setEncryptionKey(key);
+          setShowSyncSetup(false);
+        }}
+      />
       {poiLoadingCount > 0 && (
         <div
           style={{

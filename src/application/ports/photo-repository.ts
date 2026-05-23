@@ -20,4 +20,8 @@ export interface PhotoRepository {
   updateComment(id: string, comment: string | undefined): Promise<void>;
   delete(id: string): Promise<void>;
   deleteByPinId(pinId: PinId): Promise<void>;
+  findModifiedSince(hlcPhysical: number, hlcLogical: number): Promise<Photo[]>;
+  markSynced(id: string, syncedAt: Date): Promise<void>;
+  /** syncedAt が未設定の写真を取得する（未同期写真の push に使用） */
+  findUnsyncedPhotos(): Promise<Photo[]>;
 }

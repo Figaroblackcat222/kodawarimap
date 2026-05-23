@@ -1,5 +1,6 @@
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { Pin, PinExif, PinReaction, ShoppingItem } from "@domain/entities/pin";
+import { mergeHlc, nextHlc } from "@domain/value-objects/hlc";
 
 export async function updatePin(
   repo: PinRepository,
@@ -19,7 +20,8 @@ export async function updatePin(
     shoppingItems?: ShoppingItem[];
   }
 ): Promise<Pin> {
-  const updated: Pin = { ...pin, ...changes };
+  const updatedHlc = mergeHlc(pin.hlc, nextHlc(pin.hlc));
+  const updated: Pin = { ...pin, ...changes, hlc: updatedHlc };
   await repo.save(updated);
   return updated;
 }

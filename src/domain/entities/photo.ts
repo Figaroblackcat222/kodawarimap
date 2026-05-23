@@ -1,3 +1,4 @@
+import type { HLC } from "@domain/value-objects/hlc";
 import type { PinId } from "./pin";
 
 export interface PhotoExif {
@@ -27,4 +28,6 @@ export interface Photo {
   exif?: PhotoExif;
   fileInfo?: PhotoFileInfo;
   shoppingItemId?: string;
+  hlc: HLC;
+  syncedAt?: Date;
 }

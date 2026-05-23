@@ -1,0 +1,21 @@
+name = "kodawarimap-api"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "development"
+
+# D1 database (database_idはデプロイ時に設定)
+[[d1_databases]]
+binding = "DB"
+database_name = "kodawarimap-sync"
+database_id = "e9119f98-cdc9-4524-8b5a-2f6a5bedd02c"
+
+# R2 bucket（既存のものとは別に sync 用）
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "kodawarimap-photos"
+
+[triggers]
+crons = ["0 3 * * *"]

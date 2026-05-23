@@ -20,6 +20,8 @@ import { downloadPhoto } from "@infrastructure/image/write-exif";
 import type { Pin, PinReaction, ShoppingItem } from "@domain/entities/pin";
 import type { Photo, PhotoExif, PhotoFileInfo } from "@domain/entities/photo";
 import type { PhotoRepository } from "@application/ports/photo-repository";
+import type { SyncRepository } from "@application/ports/sync-repository";
+import type { CryptoService } from "@application/ports/crypto-service";
 import { PRESET_CATEGORIES, DEFAULT_CATEGORY } from "@domain/entities/category";
 
 interface Props {
@@ -31,6 +33,12 @@ interface Props {
   onCreateCopy?: (items: ShoppingItem[]) => void;
   sheetHeight: number;
   tagKeywords: string[];
+  /** 写真遅延ロード用。未指定の場合はスキップ */
+  syncRepository?: SyncRepository;
+  /** 写真復号用暗号鍵。未指定の場合はスキップ */
+  encryptionKey?: CryptoKey;
+  /** 写真バイナリ復号サービス。未指定の場合はスキップ */
+  cryptoService?: CryptoService;
 }
 
 const REACTION_OPTIONS: {
@@ -76,6 +84,9 @@ export function PinDetailSheet({
   onClose,
   onCreateCopy,
   tagKeywords,
+  syncRepository,
+  encryptionKey,
+  cryptoService,
 }: Props) {
   const [title, setTitle] = useState(pin.title);
   const [categoryId, setCategoryId] = useState(pin.categoryId ?? DEFAULT_CATEGORY.id);
@@ -121,6 +132,7 @@ export function PinDetailSheet({
   const pinchInitRef = useRef<{ dist: number; startScale: number } | null>(null);
   const initialPhotoCountRef = useRef<number | null>(null);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [isLoadingRemotePhotos, setIsLoadingRemotePhotos] = useState(false);
 
   const isDirty =
     title !== pin.title ||
@@ -171,6 +183,87 @@ export function PinDetailSheet({
     return () => {
       cancelled = true;
     };
+  }, [pin.id, photoRepo]);
+
+  // 遅延ロード: サーバー側にあってローカルにない写真を取得して復元する
+  useEffect(() => {
+    if (!syncRepository || !encryptionKey || !cryptoService) return;
+
+    let cancelled = false;
+
+    const loadRemotePhotos = async () => {
+      setIsLoadingRemotePhotos(true);
+      try {
+        const [remoteList, localPhotos] = await Promise.all([
+          syncRepository.fetchPhotoList(pin.id),
+          photoRepo.findByPinId(pin.id),
+        ]);
+
+        const localIds = new Set(localPhotos.map((p) => p.id));
+        const missingIds = remoteList.filter((r) => !localIds.has(r.id)).map((r) => r.id);
+
+        if (missingIds.length === 0 || cancelled) return;
+
+        const restoredPhotos: Photo[] = [];
+        for (const photoId of missingIds) {
+          if (cancelled) break;
+          try {
+            const encryptedBuffer = await syncRepository.fetchPhotoBinary(photoId);
+            const decryptedBuffer = await cryptoService.decryptBinary(
+              encryptionKey,
+              encryptedBuffer
+            );
+            const blob = new Blob([decryptedBuffer]);
+            // restore に必要な最低限の Photo オブジェクトを組み立てる
+            // メタデータはサーバーから取得できないため、基本情報のみ設定
+            const remoteRecord = remoteList.find((r) => r.id === photoId);
+            const photo: Photo = {
+              id: photoId,
+              pinId: pin.id,
+              blob,
+              mimeType: "image/jpeg",
+              createdAt: new Date(remoteRecord?.hlcPhysical ?? Date.now()),
+              hlc: {
+                physical: remoteRecord?.hlcPhysical ?? Date.now(),
+                logical: remoteRecord?.hlcLogical ?? 0,
+                nodeId: "remote",
+              },
+              syncedAt: new Date(),
+            };
+            await photoRepo.restore(photo);
+            restoredPhotos.push(photo);
+          } catch (err) {
+            console.warn("[pin-detail-sheet] Failed to fetch remote photo:", photoId, err);
+          }
+        }
+
+        if (!cancelled && restoredPhotos.length > 0) {
+          const updated = await photoRepo.findByPinId(pin.id);
+          setPhotos(updated);
+          setPhotoComments((prev) => {
+            const next = new Map(prev);
+            restoredPhotos.forEach((p) => {
+              if (!next.has(p.id)) next.set(p.id, p.comment ?? "");
+            });
+            return next;
+          });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("[pin-detail-sheet] Failed to load remote photos:", err);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingRemotePhotos(false);
+      }
+    };
+
+    loadRemotePhotos();
+
+    return () => {
+      cancelled = true;
+    };
+    // syncRepository / encryptionKey / cryptoService は起動時に固定されるため deps から除外
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin.id, photoRepo]);
 
   useEffect(() => {
@@ -464,7 +557,17 @@ export function PinDetailSheet({
                   marginBottom: 8,
                 }}
               >
-                <label style={{ fontSize: 14, color: "var(--text-secondary)" }}>写真</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <label style={{ fontSize: 14, color: "var(--text-secondary)" }}>写真</label>
+                  {isLoadingRemotePhotos && (
+                    <Loader2
+                      size={14}
+                      className="spin"
+                      style={{ color: "var(--text-secondary)" }}
+                      aria-label="リモート写真を取得中"
+                    />
+                  )}
+                </div>
 
                 <button
                   onClick={() => !isAddingPhoto && fileInputRef.current?.click()}

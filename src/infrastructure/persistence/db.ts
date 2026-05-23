@@ -25,6 +25,11 @@ interface PinRecord {
   thumbnailPhotoId?: string;
   shoppingItemsJson?: string;
   deletedAt?: Date;
+  // v12: HLC フィールド
+  hlcPhysical: number;
+  hlcLogical: number;
+  hlcNodeId: string;
+  syncSchemaVersion: number;
 }
 
 interface PhotoRecord {
@@ -46,11 +51,29 @@ interface PhotoRecord {
   originalFileSize?: number;
   originalLastModified?: number;
   shoppingItemId?: string;
+  // v12: HLC フィールド
+  hlcPhysical: number;
+  hlcLogical: number;
+  hlcNodeId: string;
+  syncedAt?: Date;
+  syncSchemaVersion: number;
+}
+
+interface SyncQueueRecord {
+  id: string;
+  type: "pin" | "photo";
+  recordId: string;
+  operation: "put" | "delete";
+  retries: number;
+  nextAttemptAt: number; // unix ms
+  createdAt: Date;
+  lastError?: string;
 }
 
 class KodawarimapDB extends Dexie {
   pins!: EntityTable<PinRecord, "id">;
   photos!: EntityTable<PhotoRecord, "id">;
+  sync_queue!: EntityTable<SyncQueueRecord, "id">;
 
   constructor() {
     super("kodawarimap");
@@ -95,8 +118,42 @@ class KodawarimapDB extends Dexie {
       pins: "id, createdAt, deletedAt, categoryId",
       photos: "id, pinId, createdAt",
     });
+    this.version(12)
+      .stores({
+        pins: "id, createdAt, deletedAt, categoryId, hlcPhysical",
+        photos: "id, pinId, createdAt, hlcPhysical",
+        sync_queue: "id, recordId, nextAttemptAt",
+      })
+      .upgrade(async (tx) => {
+        // 既存 pin に HLC フィールドを付与
+        await tx
+          .table("pins")
+          .toCollection()
+          .modify((pin: PinRecord) => {
+            if (pin.hlcPhysical == null) {
+              pin.hlcPhysical = pin.createdAt ? new Date(pin.createdAt).getTime() : Date.now();
+              pin.hlcLogical = 0;
+              pin.hlcNodeId = "legacy";
+              pin.syncSchemaVersion = 1;
+            }
+          });
+        // 既存 photo に HLC フィールドを付与
+        await tx
+          .table("photos")
+          .toCollection()
+          .modify((photo: PhotoRecord) => {
+            if (photo.hlcPhysical == null) {
+              photo.hlcPhysical = photo.createdAt
+                ? new Date(photo.createdAt).getTime()
+                : Date.now();
+              photo.hlcLogical = 0;
+              photo.hlcNodeId = "legacy";
+              photo.syncSchemaVersion = 1;
+            }
+          });
+      });
   }
 }
 
 export const db = new KodawarimapDB();
-export type { PinRecord, PhotoRecord };
+export type { PinRecord, PhotoRecord, SyncQueueRecord };

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { createHlc } from "@domain/value-objects/hlc";
+import { getNodeId } from "@infrastructure/sync/node-id";
 import {
   X,
   Download,
@@ -14,10 +16,20 @@ import {
   Search,
   AlertCircle,
   CheckCircle,
+  Cloud,
+  LogOut,
+  KeyRound,
+  AlertTriangle,
 } from "lucide-react";
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { PhotoRepository } from "@application/ports/photo-repository";
 import { TICKER_ENABLED_KEY, TICKER_COLLAPSED_KEY } from "./message-ticker";
+import { authService } from "@infrastructure/sync/auth-service";
+import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
+import type { SyncState } from "@presentation/hooks/use-sync";
+
+const LAST_EXPORT_AT_KEY = "kdm:last-export-at";
+const BACKUP_REMINDER_KEY = "kdm:backup-reminder-dismissed";
 
 interface Props {
   pinRepo: PinRepository;
@@ -36,6 +48,16 @@ interface Props {
   onNightEndChange: (v: string) => void;
   geocoderEnabled: boolean;
   onGeocoderEnabledChange: (v: boolean) => void;
+  /** 現在の同期状態（未設定の場合は同期セクションを非表示） */
+  syncState?: SyncState;
+  /** 手動同期トリガー */
+  onTriggerSync?: () => void;
+  /** 同期設定シートを開く */
+  onOpenSyncSetup?: () => void;
+  /** 同期の最終実行日時 */
+  lastSyncAt?: Date | null;
+  /** ログイン済みかつ鍵あり */
+  hasSyncKey?: boolean;
 }
 
 const RETENTION_OPTIONS = [7, 14, 30, 60, 90] as const;
@@ -57,6 +79,11 @@ export function SettingsSheet({
   onNightEndChange,
   geocoderEnabled,
   onGeocoderEnabledChange,
+  syncState,
+  onTriggerSync,
+  onOpenSyncSetup,
+  lastSyncAt,
+  hasSyncKey = false,
 }: Props) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -74,6 +101,32 @@ export function SettingsSheet({
     type: "success" | "error";
     message: string;
   } | null>(null);
+
+  // バックアップ通知: 30日以上経過 & ログイン済み & 今日未却下
+  const [showBackupReminder] = useState<boolean>(() => {
+    if (!authService.isLoggedIn()) return false;
+    const lastExport = localStorage.getItem(LAST_EXPORT_AT_KEY);
+    const dismissed = localStorage.getItem(BACKUP_REMINDER_KEY);
+    const today = new Date().toISOString().split("T")[0];
+    if (dismissed === today) return false;
+    if (!lastExport) return true;
+    const diffMs = Date.now() - new Date(lastExport).getTime();
+    return diffMs > 30 * 24 * 60 * 60 * 1000;
+  });
+  const [backupReminderDismissed, setBackupReminderDismissed] = useState(false);
+
+  const lastExportAt = localStorage.getItem(LAST_EXPORT_AT_KEY);
+
+  const handleLogout = async () => {
+    try {
+      const rt = authService.getRefreshToken();
+      if (rt) await cloudflareSyncRepository.logout(rt).catch(() => {});
+    } catch {
+      // ignore
+    }
+    authService.clearAll();
+    setInfoDialog({ type: "success", message: "ログアウトしました" });
+  };
 
   const handleMapUpdate = async () => {
     setMapUpdateStatus("checking");
@@ -120,6 +173,7 @@ export function SettingsSheet({
       }));
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       downloadBlob(blob, `kodawarimap-pins-${dateStr()}.json`);
+      localStorage.setItem(LAST_EXPORT_AT_KEY, new Date().toISOString());
     } finally {
       setIsExporting(false);
     }
@@ -163,6 +217,7 @@ export function SettingsSheet({
 
       const zipBlob = await zip.generateAsync({ type: "blob" });
       downloadBlob(zipBlob, `kodawarimap-backup-${dateStr()}.zip`);
+      localStorage.setItem(LAST_EXPORT_AT_KEY, new Date().toISOString());
     } finally {
       setIsExporting(false);
     }
@@ -213,6 +268,7 @@ export function SettingsSheet({
             : undefined,
           createdAt: new Date(item.createdAt as string),
           deletedAt: item.deletedAt ? new Date(item.deletedAt as string) : undefined,
+          hlc: createHlc(getNodeId()),
         });
         count++;
       } catch {
@@ -249,6 +305,7 @@ export function SettingsSheet({
             : undefined,
           createdAt: new Date(item.createdAt as string),
           deletedAt: item.deletedAt ? new Date(item.deletedAt as string) : undefined,
+          hlc: createHlc(getNodeId()),
         });
         pinCount++;
       } catch {
@@ -276,6 +333,7 @@ export function SettingsSheet({
             blob,
             mimeType: meta.mimeType as string,
             createdAt: new Date(meta.createdAt as string),
+            hlc: createHlc(getNodeId()),
             exif: rawExif
               ? {
                   takenAt: rawExif.takenAt ? new Date(rawExif.takenAt as string) : undefined,
@@ -429,6 +487,119 @@ export function SettingsSheet({
           </SettingRow>
 
           <div style={{ marginTop: 20 }} />
+
+          {/* クラウド同期セクション */}
+          <SectionTitle label="クラウド同期" />
+
+          {/* バックアップリマインダー */}
+          {showBackupReminder && !backupReminderDismissed && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                padding: "10px 12px",
+                marginBottom: 12,
+                background: "#fffbeb",
+                border: "1px solid #fbbf24",
+                borderRadius: 8,
+              }}
+            >
+              <AlertTriangle size={16} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
+              <div style={{ flex: 1, fontSize: 13, color: "#92400e", lineHeight: 1.5 }}>
+                バックアップから30日以上経過しています。大切なデータを守るためにエクスポートを実行してください。
+              </div>
+              <button
+                onClick={() => {
+                  const today = new Date().toISOString().split("T")[0];
+                  localStorage.setItem(BACKUP_REMINDER_KEY, today);
+                  setBackupReminderDismissed(true);
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#92400e",
+                  flexShrink: 0,
+                  padding: 2,
+                }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          <SettingRow
+            icon={<Cloud size={18} />}
+            label="同期状態"
+            description={
+              authService.isLoggedIn()
+                ? lastSyncAt
+                  ? `最終同期: ${formatDateTime(lastSyncAt)}`
+                  : "同期待機中"
+                : "未設定"
+            }
+          >
+            {authService.isLoggedIn() && hasSyncKey && onTriggerSync && (
+              <button
+                onClick={onTriggerSync}
+                disabled={syncState === "syncing"}
+                style={btnStyle("#6366f1")}
+              >
+                {syncState === "syncing" ? "同期中…" : "今すぐ同期"}
+              </button>
+            )}
+          </SettingRow>
+
+          {authService.isLoggedIn() ? (
+            <>
+              <SettingRow
+                icon={<KeyRound size={18} />}
+                label="パスフレーズ"
+                description={hasSyncKey ? "鍵が設定されています" : "パスフレーズが必要です"}
+              >
+                <button onClick={onOpenSyncSetup} style={btnStyle("#6366f1")}>
+                  {hasSyncKey ? "再入力" : "入力する"}
+                </button>
+              </SettingRow>
+              <SettingRow
+                icon={<LogOut size={18} />}
+                label="ログアウト"
+                description={`${authService.getEmail() ?? ""}`}
+              >
+                <button onClick={handleLogout} style={btnStyle("#ef4444")}>
+                  ログアウト
+                </button>
+              </SettingRow>
+            </>
+          ) : (
+            <SettingRow
+              icon={<Cloud size={18} />}
+              label="同期を設定する"
+              description="スマホとPCでデータを同期"
+            >
+              <button onClick={onOpenSyncSetup} style={btnStyle("#6366f1")}>
+                設定する
+              </button>
+            </SettingRow>
+          )}
+
+          <div style={{ marginTop: 20 }} />
+
+          {/* バックアップ */}
+          <SectionTitle label="バックアップ" />
+
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--text-muted)",
+              marginBottom: 8,
+            }}
+          >
+            {lastExportAt
+              ? `最終バックアップ: ${formatDateTime(new Date(lastExportAt))}`
+              : "バックアップ未実施"}
+          </div>
 
           {/* データ管理セクション */}
           <SectionTitle label="データ管理" />
@@ -878,6 +1049,15 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function formatDateTime(dateOrStr: Date | string): string {
+  const d = typeof dateOrStr === "string" ? new Date(dateOrStr) : dateOrStr;
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${m}/${day} ${h}:${min}`;
+}
+
 const selectStyle: React.CSSProperties = {
   padding: "6px 10px",
   borderRadius: 8,
@@ -927,8 +1107,8 @@ function SettingRow({
 }: {
   icon: React.ReactNode;
   label: string;
-  description: string;
-  children: React.ReactNode;
+  description: string | React.ReactNode;
+  children?: React.ReactNode;
 }) {
   return (
     <div

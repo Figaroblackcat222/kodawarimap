@@ -1,3 +1,5 @@
+import type { HLC } from "@domain/value-objects/hlc";
+
 export type PinId = string;
 
 export interface Coordinates {
@@ -40,6 +42,7 @@ export interface Pin {
   reaction?: PinReaction;
   thumbnailPhotoId?: string;
   shoppingItems?: ShoppingItem[];
+  hlc: HLC;
   createdAt: Date;
   deletedAt?: Date;
 }
@@ -47,6 +50,7 @@ export interface Pin {
 export function createPin(
   coordinates: Coordinates,
   title: string,
+  hlc: HLC,
   categoryId?: string,
   exif?: PinExif
 ): Pin {
@@ -56,6 +60,7 @@ export function createPin(
     title,
     categoryId,
     exif,
+    hlc,
     createdAt: new Date(),
   };
 }
