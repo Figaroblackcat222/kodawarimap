@@ -28,8 +28,8 @@ export function SyncStatusIndicator({ syncState, onRetry }: SyncStatusIndicatorP
       title={stateLabel(syncState)}
       style={{
         position: "absolute",
-        top: 48,
-        right: 52,
+        top: 92,
+        right: 8,
         zIndex: 10,
         width: 36,
         height: 36,
