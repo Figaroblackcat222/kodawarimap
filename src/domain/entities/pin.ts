@@ -18,6 +18,13 @@ export interface PinExif {
 
 export type PinReaction = "want_to_revisit" | "once_was_enough" | "never_again";
 
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  checked: boolean;
+  photoId?: string;
+}
+
 export interface Pin {
   id: PinId;
   coordinates: Coordinates;
@@ -32,6 +39,7 @@ export interface Pin {
   allowPhotoDownload?: boolean;
   reaction?: PinReaction;
   thumbnailPhotoId?: string;
+  shoppingItems?: ShoppingItem[];
   createdAt: Date;
   deletedAt?: Date;
 }

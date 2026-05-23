@@ -26,4 +26,5 @@ export interface Photo {
   comment?: string;
   exif?: PhotoExif;
   fileInfo?: PhotoFileInfo;
+  shoppingItemId?: string;
 }

@@ -9,6 +9,12 @@ export interface PhotoRepository {
     exif?: PhotoExif,
     fileInfo?: PhotoFileInfo
   ): Promise<Photo>;
+  saveForShoppingItem(
+    pinId: PinId,
+    shoppingItemId: string,
+    blob: Blob,
+    mimeType: string
+  ): Promise<Photo>;
   restore(photo: Photo): Promise<void>;
   findByPinId(pinId: PinId): Promise<Photo[]>;
   updateComment(id: string, comment: string | undefined): Promise<void>;

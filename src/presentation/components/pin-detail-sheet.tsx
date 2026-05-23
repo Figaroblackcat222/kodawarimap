@@ -9,11 +9,15 @@ import {
   Download,
   Lock,
   AlertTriangle,
+  Camera,
+  Trash2,
+  Square,
+  CheckSquare,
 } from "lucide-react";
 import { normalizePhoto } from "@infrastructure/image/normalize-photo";
 import { parseExif } from "@infrastructure/exif/exif-parser";
 import { downloadPhoto } from "@infrastructure/image/write-exif";
-import type { Pin, PinReaction } from "@domain/entities/pin";
+import type { Pin, PinReaction, ShoppingItem } from "@domain/entities/pin";
 import type { Photo, PhotoExif, PhotoFileInfo } from "@domain/entities/photo";
 import type { PhotoRepository } from "@application/ports/photo-repository";
 import { PRESET_CATEGORIES, DEFAULT_CATEGORY } from "@domain/entities/category";
@@ -24,6 +28,7 @@ interface Props {
   photoRepo: PhotoRepository;
   onSave: (updated: Pin) => void;
   onClose: () => void;
+  onCreateCopy?: (items: ShoppingItem[]) => void;
   sheetHeight: number;
   tagKeywords: string[];
 }
@@ -69,6 +74,7 @@ export function PinDetailSheet({
   photoRepo,
   onSave,
   onClose,
+  onCreateCopy,
   tagKeywords,
 }: Props) {
   const [title, setTitle] = useState(pin.title);
@@ -96,6 +102,11 @@ export function PinDetailSheet({
   );
   const [isOtherInfoOpen, setIsOtherInfoOpen] = useState(false);
   const [photoComments, setPhotoComments] = useState<Map<string, string>>(new Map());
+  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>(pin.shoppingItems ?? []);
+  const [newItemName, setNewItemName] = useState("");
+  const [pendingItemPhotoIds, setPendingItemPhotoIds] = useState<string[]>([]);
+  const [activeItemPhotoId, setActiveItemPhotoId] = useState<string | null>(null);
+  const itemFileInputRef = useRef<HTMLInputElement>(null);
   const [lbScale, setLbScale] = useState(1);
   const lbScaleRef = useRef(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -127,11 +138,13 @@ export function PinDetailSheet({
     (initialPhotoCountRef.current !== null && photos.length > initialPhotoCountRef.current) ||
     Array.from(photoComments.entries()).some(
       ([id, c]) => c.trim() !== (photos.find((p) => p.id === id)?.comment?.trim() ?? "")
-    );
+    ) ||
+    JSON.stringify(shoppingItems) !== JSON.stringify(pin.shoppingItems ?? []);
 
   const doClose = async () => {
-    if (pendingAddIds.length > 0) {
-      await Promise.all(pendingAddIds.map((id) => photoRepo.delete(id)));
+    const toDelete = [...pendingAddIds, ...pendingItemPhotoIds];
+    if (toDelete.length > 0) {
+      await Promise.all(toDelete.map((id) => photoRepo.delete(id)));
     }
     onClose();
   };
@@ -168,6 +181,7 @@ export function PinDetailSheet({
 
   const handleSave = async () => {
     setPendingAddIds([]);
+    setPendingItemPhotoIds([]);
     await Promise.all(pendingDeleteIds.map((id) => photoRepo.delete(id)));
     await Promise.all(
       Array.from(photoComments.entries())
@@ -196,6 +210,7 @@ export function PinDetailSheet({
       allowPhotoDownload,
       reaction,
       thumbnailPhotoId,
+      shoppingItems: shoppingItems.length > 0 ? shoppingItems : undefined,
     });
   };
 
@@ -246,7 +261,60 @@ export function PinDetailSheet({
     setPendingDeleteIds((prev) => [...prev, photoId]);
   };
 
-  const visiblePhotos = photos.filter((p) => !pendingDeleteIds.includes(p.id));
+  const addShoppingItem = () => {
+    const name = newItemName.trim();
+    if (!name) return;
+    setShoppingItems((prev) => [...prev, { id: crypto.randomUUID(), name, checked: false }]);
+    setNewItemName("");
+  };
+
+  const toggleShoppingItem = (id: string) => {
+    setShoppingItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, checked: !item.checked } : item))
+    );
+  };
+
+  const deleteShoppingItem = (id: string) => {
+    const photo = itemPhotoMap.get(id);
+    if (photo) {
+      setPendingDeleteIds((prev) => [...prev, photo.id]);
+    }
+    setShoppingItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const clearCheckedItems = () => {
+    shoppingItems
+      .filter((item) => item.checked)
+      .forEach((item) => {
+        const photo = itemPhotoMap.get(item.id);
+        if (photo) setPendingDeleteIds((prev) => [...prev, photo.id]);
+      });
+    setShoppingItems((prev) => prev.filter((item) => !item.checked));
+  };
+
+  const handleItemPhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!activeItemPhotoId || !e.target.files?.[0]) return;
+    const file = e.target.files[0];
+    const { blob, mimeType } = await normalizePhoto(file);
+    const existing = itemPhotoMap.get(activeItemPhotoId);
+    if (existing) {
+      setPendingDeleteIds((prev) => [...prev, existing.id]);
+      setPhotos((prev) => prev.filter((p) => p.id !== existing.id));
+    }
+    const saved = await photoRepo.saveForShoppingItem(pin.id, activeItemPhotoId, blob, mimeType);
+    setPhotos((prev) => [...prev, saved]);
+    setPendingItemPhotoIds((prev) => [...prev, saved.id]);
+    setShoppingItems((prev) =>
+      prev.map((item) => (item.id === activeItemPhotoId ? { ...item, photoId: saved.id } : item))
+    );
+    setActiveItemPhotoId(null);
+    e.target.value = "";
+  };
+
+  const visiblePhotos = photos.filter((p) => !pendingDeleteIds.includes(p.id) && !p.shoppingItemId);
+  const itemPhotoMap = new Map(
+    photos.filter((p) => p.shoppingItemId != null).map((p) => [p.shoppingItemId!, p])
+  );
 
   useEffect(() => {
     if (lightboxIndex === null) return;
@@ -649,6 +717,203 @@ export function PinDetailSheet({
                 }}
               />
             </div>
+
+            {/* 買い物リスト（ショッピングカテゴリーのみ） */}
+            {categoryId === "shopping" && (
+              <div>
+                <input
+                  ref={itemFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={handleItemPhotoSelect}
+                />
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    marginBottom: 8,
+                    gap: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 16 }}>🛍️</span>
+                  <span style={{ fontSize: 14, color: "var(--text-secondary)", fontWeight: 600 }}>
+                    買い物リスト
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <input
+                    value={newItemName}
+                    onChange={(e) => setNewItemName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addShoppingItem();
+                      }
+                    }}
+                    placeholder="品物を入力…"
+                    style={{
+                      flex: 1,
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      border: "2px solid var(--border)",
+                      fontSize: 14,
+                      outline: "none",
+                      background: "var(--input-bg)",
+                      color: "var(--text-primary)",
+                    }}
+                  />
+                  <button
+                    onClick={addShoppingItem}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: "#d946ef",
+                      color: "#fff",
+                      fontSize: 14,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    追加
+                  </button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {shoppingItems.map((item) => {
+                    const itemPhoto = itemPhotoMap.get(item.id);
+                    const itemPhotoUrl = itemPhoto ? photoUrls.get(itemPhoto.id) : undefined;
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "6px 8px",
+                          borderRadius: 8,
+                          background: "var(--bg-secondary, rgba(0,0,0,.04))",
+                        }}
+                      >
+                        <button
+                          onClick={() => {
+                            setActiveItemPhotoId(item.id);
+                            itemFileInputRef.current?.click();
+                          }}
+                          title="写真を追加"
+                          style={{
+                            flexShrink: 0,
+                            width: 32,
+                            height: 32,
+                            borderRadius: 6,
+                            border: "1.5px dashed var(--border)",
+                            background: "none",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            overflow: "hidden",
+                            padding: 0,
+                          }}
+                        >
+                          {itemPhotoUrl ? (
+                            <img
+                              src={itemPhotoUrl}
+                              style={{ width: 32, height: 32, objectFit: "cover" }}
+                            />
+                          ) : (
+                            <Camera size={14} color="var(--text-secondary)" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => toggleShoppingItem(item.id)}
+                          style={{
+                            flexShrink: 0,
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            color: item.checked ? "#d946ef" : "var(--text-secondary)",
+                          }}
+                        >
+                          {item.checked ? <CheckSquare size={20} /> : <Square size={20} />}
+                        </button>
+                        <span
+                          style={{
+                            flex: 1,
+                            fontSize: 14,
+                            color: "var(--text-primary)",
+                            textDecoration: item.checked ? "line-through" : "none",
+                            opacity: item.checked ? 0.5 : 1,
+                          }}
+                        >
+                          {item.name}
+                        </span>
+                        <button
+                          onClick={() => deleteShoppingItem(item.id)}
+                          style={{
+                            flexShrink: 0,
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: 4,
+                            display: "flex",
+                            alignItems: "center",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                  {shoppingItems.some((i) => i.checked) && (
+                    <button
+                      onClick={clearCheckedItems}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: 8,
+                        border: "1.5px solid var(--border)",
+                        background: "none",
+                        fontSize: 13,
+                        color: "var(--text-secondary)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      チェック済みを削除
+                    </button>
+                  )}
+                  {onCreateCopy && shoppingItems.length > 0 && !isNew && (
+                    <button
+                      onClick={() => {
+                        const copied = shoppingItems.map((item) => ({
+                          ...item,
+                          id: crypto.randomUUID(),
+                          checked: false,
+                          photoId: undefined,
+                        }));
+                        onCreateCopy(copied);
+                      }}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: 8,
+                        border: "1.5px solid #d946ef",
+                        background: "none",
+                        fontSize: 13,
+                        color: "#d946ef",
+                        cursor: "pointer",
+                      }}
+                    >
+                      このリストをコピーして新規作成
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* マイタグ */}
             <div>

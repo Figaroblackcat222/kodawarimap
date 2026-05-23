@@ -1,5 +1,5 @@
 import type { PinRepository } from "@application/ports/pin-repository";
-import type { Pin, PinExif, PinReaction } from "@domain/entities/pin";
+import type { Pin, PinExif, PinReaction, ShoppingItem } from "@domain/entities/pin";
 
 export async function updatePin(
   repo: PinRepository,
@@ -16,6 +16,7 @@ export async function updatePin(
     allowPhotoDownload?: boolean;
     reaction?: PinReaction;
     thumbnailPhotoId?: string;
+    shoppingItems?: ShoppingItem[];
   }
 ): Promise<Pin> {
   const updated: Pin = { ...pin, ...changes };

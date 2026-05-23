@@ -1034,6 +1034,24 @@ export function PinListSheet({
                               {pin.tag}
                             </span>
                           )}
+                          {pin.categoryId === "shopping" &&
+                            (() => {
+                              const unchecked = (pin.shoppingItems ?? []).filter(
+                                (i) => !i.checked
+                              ).length;
+                              return unchecked > 0 ? (
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#d946ef",
+                                    fontWeight: 600,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  残り{unchecked}件
+                                </span>
+                              ) : null;
+                            })()}
                         </div>
                         {pin.comment && (
                           <span

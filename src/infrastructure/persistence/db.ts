@@ -23,6 +23,7 @@ interface PinRecord {
   createdAt: Date;
   reaction?: string;
   thumbnailPhotoId?: string;
+  shoppingItemsJson?: string;
   deletedAt?: Date;
 }
 
@@ -44,6 +45,7 @@ interface PhotoRecord {
   originalFileName?: string;
   originalFileSize?: number;
   originalLastModified?: number;
+  shoppingItemId?: string;
 }
 
 class KodawarimapDB extends Dexie {
@@ -89,6 +91,10 @@ class KodawarimapDB extends Dexie {
             }
           });
       });
+    this.version(11).stores({
+      pins: "id, createdAt, deletedAt, categoryId",
+      photos: "id, pinId, createdAt",
+    });
   }
 }
 

@@ -1,5 +1,5 @@
 import type { PinRepository } from "@application/ports/pin-repository";
-import type { Pin, PinId, PinReaction } from "@domain/entities/pin";
+import type { Pin, PinId, PinReaction, ShoppingItem } from "@domain/entities/pin";
 import { db, type PinRecord } from "./db";
 
 function recordToPin(r: PinRecord): Pin {
@@ -25,6 +25,9 @@ function recordToPin(r: PinRecord): Pin {
     allowPhotoDownload: r.allowPhotoDownload,
     reaction: r.reaction as PinReaction | undefined,
     thumbnailPhotoId: r.thumbnailPhotoId,
+    shoppingItems: r.shoppingItemsJson
+      ? (JSON.parse(r.shoppingItemsJson) as ShoppingItem[])
+      : undefined,
     exif: hasExif
       ? {
           takenAt: r.takenAt,
@@ -58,6 +61,10 @@ export const dexiePinRepository: PinRepository = {
       allowPhotoDownload: pin.allowPhotoDownload,
       reaction: pin.reaction,
       thumbnailPhotoId: pin.thumbnailPhotoId,
+      shoppingItemsJson:
+        pin.shoppingItems && pin.shoppingItems.length > 0
+          ? JSON.stringify(pin.shoppingItems)
+          : undefined,
       takenAt: pin.exif?.takenAt,
       takenAtEstimated: pin.exif?.takenAtEstimated,
       cameraMake: pin.exif?.cameraMake,

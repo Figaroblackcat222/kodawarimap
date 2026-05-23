@@ -5,7 +5,7 @@ import type { Feature } from "geojson";
 import { useMap } from "@infrastructure/map/use-map";
 import { loadPoiTile } from "@infrastructure/poi/poi-loader";
 import { lngLatToTile } from "@infrastructure/poi/tile-utils";
-import type { Pin, PinExif } from "@domain/entities/pin";
+import type { Pin, PinExif, ShoppingItem } from "@domain/entities/pin";
 import type { PhotoExif, PhotoFileInfo } from "@domain/entities/photo";
 import { parseExif } from "@infrastructure/exif/exif-parser";
 import { dexiePinRepository } from "@infrastructure/persistence/dexie-pin-repository";
@@ -360,6 +360,7 @@ type ProvisionalPinData = {
   categoryId: string;
   pinExif: PinExif;
   initialCoordinates: { lng: number; lat: number };
+  shoppingItems?: ShoppingItem[];
 };
 
 type MergeProposalData = {
@@ -415,6 +416,9 @@ const CYCLE_MESSAGES = [
   "[地図 > POI] カテゴリーに合ったスポット情報（POI）が地図上に重なって表示されます",
   "[設定 > 地図情報更新] 設定の「地図情報を更新」で、POIデータとアプリを最新状態にできます",
   "[設定 > ソート順] 一覧のソート順（日付順・タイトル順）は設定画面で切り替えられます",
+  "[詳細画面 > 買い物リスト] ショッピングカテゴリーのピンには買い物リストが使えます。お店ごとに品物を管理しましょう",
+  "[詳細画面 > 買い物リスト] 品物ごとに📷で写真を添付できます。「あのパッケージどれだっけ？」をその場で解決",
+  "[詳細画面 > 買い物リスト] 「このリストをコピーして新規作成」で、家にいながら次回の買い物リストを事前準備できます",
 ];
 
 export function MapView() {
@@ -682,6 +686,16 @@ export function MapView() {
         const title = nearbyPins[0]?.title ?? file.name.replace(/\.[^.]+$/, "");
         const inheritedCategoryId = nearbyPins[0]?.categoryId ?? category.id;
 
+        const inheritedShoppingItems =
+          nearbyPins[0]?.shoppingItems && nearbyPins[0].shoppingItems.length > 0
+            ? nearbyPins[0].shoppingItems.map((item) => ({
+                ...item,
+                id: crypto.randomUUID(),
+                checked: false,
+                photoId: undefined,
+              }))
+            : undefined;
+
         const provisionalData: ProvisionalPinData = {
           blob,
           mimeType,
@@ -692,6 +706,7 @@ export function MapView() {
           categoryId: inheritedCategoryId,
           pinExif,
           initialCoordinates: { lng, lat },
+          shoppingItems: inheritedShoppingItems,
         };
 
         // 同日の近傍ピンがあればマージ確認を表示
@@ -750,15 +765,28 @@ export function MapView() {
     const marker = provisionalMarkerRef.current;
     if (!provisionalPinData || !marker) return;
     const { lng, lat } = marker.getLngLat();
-    const { blob, mimeType, photoExif, fileInfo, title, titleIsFile, categoryId, pinExif } =
-      provisionalPinData;
+    const {
+      blob,
+      mimeType,
+      photoExif,
+      fileInfo,
+      title,
+      titleIsFile,
+      categoryId,
+      pinExif,
+      shoppingItems,
+    } = provisionalPinData;
     const map = mapRef.current;
     const placeName = map ? getPlaceName(map, lng, lat) : null;
     const resolvedTitle = titleIsFile && placeName ? placeName : title;
     try {
       let pin = await addPin(repo, { lng, lat }, resolvedTitle, categoryId, pinExif);
-      if (placeName) {
-        pin = { ...pin, location: placeName };
+      if (placeName || shoppingItems) {
+        pin = {
+          ...pin,
+          ...(placeName ? { location: placeName } : {}),
+          ...(shoppingItems ? { shoppingItems } : {}),
+        };
         await repo.save(pin);
       }
       await dexiePhotoRepository.save(pin.id, blob, mimeType, photoExif, fileInfo);
@@ -892,15 +920,41 @@ export function MapView() {
         title: updated.title,
         categoryId: updated.categoryId,
         comment: updated.comment,
+        tag: updated.tag,
+        location: updated.location,
         url: updated.url,
         videoUrl: updated.videoUrl,
         exif: updated.exif,
+        allowPhotoDownload: updated.allowPhotoDownload,
+        reaction: updated.reaction,
+        thumbnailPhotoId: updated.thumbnailPhotoId,
+        shoppingItems: updated.shoppingItems,
       });
       await refreshLists();
       setSelectedPin(null);
       showMessage(`「${updated.title}」を更新しました`);
     },
     [refreshLists, showMessage]
+  );
+
+  const handleCreateCopyFromPin = useCallback(
+    async (sourcePin: Pin, items: ShoppingItem[]) => {
+      setSelectedPin(null);
+      setIsNewPin(false);
+      const newPin = await addPin(
+        repo,
+        sourcePin.coordinates,
+        sourcePin.title,
+        sourcePin.categoryId
+      );
+      const pinWithList = { ...newPin, shoppingItems: items };
+      await repo.save(pinWithList);
+      setPins((prev) => [...prev, pinWithList]);
+      setSelectedPin(pinWithList);
+      setIsNewPin(true);
+      showMessage(`「${newPin.title}」のリストをコピーしました`);
+    },
+    [showMessage]
   );
 
   const handleMapClickWithDismiss = useCallback(
@@ -1306,6 +1360,7 @@ export function MapView() {
             setSelectedPin(null);
             setIsNewPin(false);
           }}
+          onCreateCopy={(items) => handleCreateCopyFromPin(selectedPin, items)}
           sheetHeight={sheetHeight}
           tagKeywords={tagKeywords}
         />

@@ -35,6 +35,25 @@ export const dexiePhotoRepository: PhotoRepository = {
     return { id, pinId, blob, mimeType, createdAt, comment: undefined, exif, fileInfo };
   },
 
+  async saveForShoppingItem(
+    pinId: PinId,
+    shoppingItemId: string,
+    blob: Blob,
+    mimeType: string
+  ): Promise<Photo> {
+    const id = crypto.randomUUID();
+    const createdAt = new Date();
+    await db.photos.put({
+      id,
+      pinId,
+      blob,
+      mimeType,
+      createdAt,
+      shoppingItemId,
+    });
+    return { id, pinId, blob, mimeType, createdAt, shoppingItemId };
+  },
+
   async findByPinId(pinId: PinId): Promise<Photo[]> {
     const records = await db.photos.where("pinId").equals(pinId).sortBy("createdAt");
     return records.map((r) => {
@@ -55,6 +74,7 @@ export const dexiePhotoRepository: PhotoRepository = {
         mimeType: r.mimeType,
         createdAt: r.createdAt,
         comment: r.comment,
+        shoppingItemId: r.shoppingItemId,
         exif: hasExif
           ? {
               takenAt: r.exifTakenAt,
@@ -90,6 +110,7 @@ export const dexiePhotoRepository: PhotoRepository = {
       mimeType: photo.mimeType,
       createdAt: photo.createdAt,
       comment: photo.comment,
+      shoppingItemId: photo.shoppingItemId,
       exifTakenAt: photo.exif?.takenAt,
       exifTakenAtEstimated: photo.exif?.takenAtEstimated,
       exifCameraMake: photo.exif?.cameraMake,

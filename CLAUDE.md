@@ -23,15 +23,15 @@
 ```
 src/
 ├── domain/
-│   ├── entities/        # Pin（+ PinExif + PinReaction + thumbnailPhotoId + tag）, Category, Photo（+ comment）
+│   ├── entities/        # Pin（+ PinExif + PinReaction + thumbnailPhotoId + tag + shoppingItems）, ShoppingItem（id/name/checked/photoId）, Category, Photo（+ comment + shoppingItemId）
 │   └── value-objects/   # ExifData
 ├── application/
-│   ├── ports/           # PinRepository, PhotoRepository（restore含む）インターフェース
-│   └── use-cases/       # add-pin, update-pin（title/category/comment/url/videoUrl/exif/reaction/tag/location/thumbnailPhotoId）,
+│   ├── ports/           # PinRepository, PhotoRepository（restore・saveForShoppingItem含む）インターフェース
+│   └── use-cases/       # add-pin, update-pin（title/category/comment/url/videoUrl/exif/reaction/tag/location/thumbnailPhotoId/shoppingItems）,
                          # soft-delete-pin, restore-pin, hard-delete-pin, add-photo, delete-photo
 ├── infrastructure/
-│   ├── persistence/     # db.ts（Dexie v4, schema v10: event→tagリネーム・thumbnailPhotoId・photo.comment追加）,
-                         # dexie-pin-repository.ts, dexie-photo-repository.ts（restore実装）
+│   ├── persistence/     # db.ts（Dexie v4, schema v11: shoppingItemsJson追加(pins)・shoppingItemId追加(photos)・非破壊的マイグレーション）,
+                         # dexie-pin-repository.ts（shoppingItemsをJSONシリアライズ）, dexie-photo-repository.ts（restore・saveForShoppingItem実装）
 │   ├── exif/            # exif-parser.ts（exifr: GPS・F値・SS・焦点距離・ISO）
 │   ├── image/           # normalize-photo.ts（heic-to: HEIC/HEIF → JPEG変換）,
                          # write-exif.ts（piexifjs: EXIF書き戻し + ダウンロード実行）
@@ -43,17 +43,17 @@ src/
                          # tile-utils.ts（lngLatToTile / tileToBbox: z8タイル座標計算ユーティリティ）
 │   └── cache/           # TileCache（未実装・PMTiles移行後）
 └── presentation/
-    └── components/      # map-view（GPS仮置きモード・マージ確認・地図範囲追跡・カテゴリー絵文字バッジ（白丸中央配置 top:13.5px;left:13.5px・font-size:22px・全ピン常時表示）・リッチツールチップ（写真2枚以上で右下に枚数バッジ）・POI取得中インジケーター（地図左下スピナーpill）・起動時POIロード（loadPoiForStartup: loadedTilesRef非汚染）・ピン作成時POIロード（loadPoiForPin: loadedTilesRef+fetchedTilesRefで重複防止）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin選択中はマーカーをvisibility:hiddenで非表示（詳細シートとの重なり防止）・filteredPinIdsによる地図マーカーと一覧フィルターの同期・tagKeywordsをuseMemoで集計してPinListSheet/PinDetailSheetに渡す・汎用カテゴリー選択時はPOIを非表示（applyPoiFilter: general→空配列）・tickerLabel/tickerMessageをコンテキスト別に算出しMessageTickerに渡す（CYCLE_MESSAGES 35件・INTRO_MESSAGES 5件・コンポーネント外定数）・handleTickerScrollEndコールバックでメッセージサイクルを管理（setInterval廃止）・flyTo全箇所でpadding 4辺明示（top:40・bottom:0またはdetailOverlap・left:0・right:0）・geocoderEnabled状態管理含む）,
+    └── components/      # map-view（GPS仮置きモード・マージ確認・地図範囲追跡・カテゴリー絵文字バッジ（白丸中央配置 top:13.5px;left:13.5px・font-size:22px・全ピン常時表示）・リッチツールチップ（写真2枚以上で右下に枚数バッジ）・POI取得中インジケーター（地図左下スピナーpill）・起動時POIロード（loadPoiForStartup: loadedTilesRef非汚染）・ピン作成時POIロード（loadPoiForPin: loadedTilesRef+fetchedTilesRefで重複防止）・昼夜自動テーマ計算・getPlaceName()で地名自動取得・selectedPin選択中はマーカーをvisibility:hiddenで非表示（詳細シートとの重なり防止）・filteredPinIdsによる地図マーカーと一覧フィルターの同期・tagKeywordsをuseMemoで集計してPinListSheet/PinDetailSheetに渡す・汎用カテゴリー選択時はPOIを非表示（applyPoiFilter: general→空配列）・tickerLabel/tickerMessageをコンテキスト別に算出しMessageTickerに渡す（CYCLE_MESSAGES 38件・INTRO_MESSAGES 5件・コンポーネント外定数）・handleTickerScrollEndコールバックでメッセージサイクルを管理（setInterval廃止）・flyTo全箇所でpadding 4辺明示（top:40・bottom:0またはdetailOverlap・left:0・right:0）・geocoderEnabled状態管理含む）,
                          # photo-upload-button（左下配置・bottom: sheetHeight+8でボトムシートに追従・スマホ・PCともにテキスト常時表示・padding:8px 12px・fontSize:13）,
                          # category-selector（タップで2列グリッド展開・選択後に縮小・スマホ/PCともに絵文字＋名前表示・カテゴリー追加時は行が自動増加）,
-                         # pin-list-sheet（11段階スナップ44px/25%/30%/35%/40%/45%/50%/55%/60%/65%/85%・展開縮小ボタンは44px↔65%のトグル・ピルハンドル下に全件/表示範囲トグル（onListScopeChangeコールバック経由）・件数表示はactivePins.length（フィルター適用後）・ソート・フィルターセクションボタン4色（カテゴリー=青 #3b82f6 LayoutGrid・リアクション=緑 #22c55e Smile・マイタグ=紫 #8b5cf6 Tag・撮影日=橙 #f59e0b Calendar）・SectionFilterButtonのpadding:10px 6px（タッチターゲット~44px確保）・FilterPillのpadding:8px 12px（タッチターゲット確保）・ドラッグに8pxデッドゾーン（dragRefにdraggingフラグ・8px超でsetPointerCapture）・フィルター展開時にシートが45%未満なら45%に自動拡張（sheetHeightRefで読み取り・openSection/isFilterBarOpen変化時のみ発火）・フィルターpillsはflexWrap折り返し表示・タグフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリックで閉じる）・フィルター適用中はFilterXアイコンボタンをフィルターボタン左隣に表示・撮影日フィルター=toLocalDateStr()でローカルタイムゾーン基準・今週=日曜起点・今月=1日・今年=1月1日・プリセット選択状態を色で表示・タイトル行にreaction絵文字インライン表示・撮影日時右隣にtag表示・キーワード検索がtag対象・pin.thumbnailPhotoIdでサムネイル選択・handleFilteredPinsChangeをuseCallback([pins])でメモ化しPinListSheetに渡す（インライン関数による無限ループ防止）・onFilteredPinsChangeで地図マーカーフィルターと同期含む）,
-                         # pin-detail-sheet（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム（写真コメントをlightboxに表示）・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所（location）フィールド・ダウンロード許可トグル・写真一括追加・各写真に個別コメント入力・★/☆ボタンでサムネ選択（thumbnailPhotoId）・isDirtyによる保存ボタン活性化制御（isNew=trueは常時活性）・pendingAddIdsで閉じる時の未保存写真自動削除・マイタグ入力欄（コメント下）にドロップダウンサジェスト・フッター「閉じる」ボタン含む）,
+                         # pin-list-sheet（11段階スナップ44px/25%/30%/35%/40%/45%/50%/55%/60%/65%/85%・展開縮小ボタンは44px↔65%のトグル・ピルハンドル下に全件/表示範囲トグル（onListScopeChangeコールバック経由）・件数表示はactivePins.length（フィルター適用後）・ソート・フィルターセクションボタン4色（カテゴリー=青 #3b82f6 LayoutGrid・リアクション=緑 #22c55e Smile・マイタグ=紫 #8b5cf6 Tag・撮影日=橙 #f59e0b Calendar）・SectionFilterButtonのpadding:10px 6px（タッチターゲット~44px確保）・FilterPillのpadding:8px 12px（タッチターゲット確保）・ドラッグに8pxデッドゾーン（dragRefにdraggingフラグ・8px超でsetPointerCapture）・フィルター展開時にシートが45%未満なら45%に自動拡張（sheetHeightRefで読み取り・openSection/isFilterBarOpen変化時のみ発火）・フィルターpillsはflexWrap折り返し表示・タグフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリックで閉じる）・フィルター適用中はFilterXアイコンボタンをフィルターボタン左隣に表示・撮影日フィルター=toLocalDateStr()でローカルタイムゾーン基準・今週=日曜起点・今月=1日・今年=1月1日・プリセット選択状態を色で表示・タイトル行にreaction絵文字インライン表示・撮影日時右隣にtag表示・キーワード検索がtag対象・pin.thumbnailPhotoIdでサムネイル選択・handleFilteredPinsChangeをuseCallback([pins])でメモ化しPinListSheetに渡す（インライン関数による無限ループ防止）・onFilteredPinsChangeで地図マーカーフィルターと同期含む・ショッピングカテゴリーピン行に未チェック品目数バッジ「残りN件」（#d946ef）表示），
+                         # pin-detail-sheet（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム（写真コメントをlightboxに表示）・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所（location）フィールド・ダウンロード許可トグル・写真一括追加・各写真に個別コメント入力・★/☆ボタンでサムネ選択（thumbnailPhotoId）・isDirtyによる保存ボタン活性化制御（isNew=trueは常時活性）・pendingAddIds/pendingItemPhotoIdsで閉じる時の未保存写真自動削除・マイタグ入力欄（コメント下）にドロップダウンサジェスト・フッター「閉じる」ボタン含む・ショッピングカテゴリー時のみ買い物リストセクション表示（コメント直後・マイタグ直前）：品目追加/チェック/削除・品目ごとに参照写真1枚（saveForShoppingItem経由・メインギャラリーから除外）・「チェック済みを削除」ボタン・「このリストをコピーして新規作成」ボタン（onCreateCopyコールバック経由）），
                          # cluster-sheet, current-location-button（左側配置 top:160 left:8）,
                          # settings-sheet（地図情報更新（POIキャッシュclr+SW更新チェック）・ソート順・地図検索ON/OFF（Nominatim・同意ダイアログ付き）・ガイドメッセージON/OFF＋折りたたみ解除ボタン・昼夜自動テーマ切り替えトグル＋時刻設定含む）,
                          # pwa-update-dialog（新SW待機時にダイアログ表示・「後で」は1時間スキップ・タブ再オープン（ページロード）時はスヌーズ無視で即表示・visibilitychange+タイマーで再表示（スヌーズ尊重）・useRegisterSW使用）,
                          # message-ticker（地図上部ガイドメッセージ・height:40px・font-size:14px・左端に固定ラベル表示（【はじめに】【ヒント】）・静止3秒→左スクロール（1回）→onScrollEndで次メッセージのサイクル・静止中は左12px マージン付き・×で左端に折りたたみ（▶ボタン）・localStorage: ticker-enabled/ticker-collapsed）,
                          # geocoder-search（Nominatim地名検索・収縮/展開ボタン（top:48 right:52）・展開時 top:48 left:50 right:52（ズームコントロール・設定ボタン非重複）・debounce 400ms・flyTo・© OpenStreetMap contributors表示）,
-                         # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ）
+                         # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ・handleCreateCopyFromPin: ショッピングピンのリストをコピーして同座標に新ピン作成・再訪時にProvisionalPinDataへshoppingItems継承（チェックリセット）)
 public/                      # PWA静的アセット（アイコン・favicon）
 scripts/
 ├── generate-icons.mjs           # PWAアイコン生成スクリプト（Node.js）
