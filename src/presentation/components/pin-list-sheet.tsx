@@ -190,6 +190,8 @@ export function PinListSheet({
   >(null);
 
   const dragRef = useRef<{ startY: number; startHeight: number; dragging: boolean } | null>(null);
+  const sheetHeightRef = useRef(sheetHeight);
+  sheetHeightRef.current = sheetHeight;
 
   const handleCollapseToggle = useCallback(() => {
     if (sheetHeight <= MIN_HEIGHT) {
@@ -239,10 +241,11 @@ export function PinListSheet({
   );
 
   useEffect(() => {
-    if ((isFilterBarOpen || openSection !== null) && sheetHeight <= MIN_HEIGHT) {
-      onSheetHeightChange(Math.round(window.innerHeight * 0.4));
+    const TARGET = Math.round(window.innerHeight * 0.45);
+    if ((isFilterBarOpen || openSection !== null) && sheetHeightRef.current < TARGET) {
+      onSheetHeightChange(TARGET);
     }
-  }, [isFilterBarOpen, openSection, onSheetHeightChange, sheetHeight]);
+  }, [isFilterBarOpen, openSection, onSheetHeightChange]);
 
   const activePins = useMemo(() => {
     let result = pins;
@@ -1222,7 +1225,7 @@ function FilterPill({
         flexShrink: 0,
         border: "none",
         borderRadius: 14,
-        padding: "4px 12px",
+        padding: "8px 12px",
         fontSize: 12,
         cursor: "pointer",
         whiteSpace: "nowrap",
