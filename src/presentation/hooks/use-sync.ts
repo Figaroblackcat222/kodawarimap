@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { tabCoordinator } from "@infrastructure/sync/tab-coordinator";
 import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
 import { dexiePinRepository } from "@infrastructure/persistence/dexie-pin-repository";
+import { dexiePhotoRepository } from "@infrastructure/persistence/dexie-photo-repository";
 import { dexieSyncQueueRepository } from "@infrastructure/persistence/dexie-sync-queue-repository";
 import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
 import { pullSync } from "@application/use-cases/pull-sync";
@@ -87,14 +88,15 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
           currentHlc = since;
         }
 
-        // Push: IndexedDB → サーバー
+        // Push: IndexedDB → サーバー（写真含む）
         await pushSync(
           cloudflareSyncRepository,
           dexiePinRepository,
           webCryptoService,
           encryptionKey,
           dexieSyncQueueRepository,
-          currentHlc
+          currentHlc,
+          dexiePhotoRepository
         );
 
         // 同期完了を他タブに通知
