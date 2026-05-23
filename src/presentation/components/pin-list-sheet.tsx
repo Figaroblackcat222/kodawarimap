@@ -654,10 +654,7 @@ export function PinListSheet({
 
                   {/* フィルターセクションボタン（絞り込みバー展開時のみ表示） */}
                   {isFilterBarOpen && (
-                    <div
-                      onPointerDown={(e) => e.stopPropagation()}
-                      style={{ display: "flex", gap: 4 }}
-                    >
+                    <div style={{ display: "flex", gap: 4 }}>
                       <SectionFilterButton
                         label="カテゴリー"
                         active={openSection === "category"}
