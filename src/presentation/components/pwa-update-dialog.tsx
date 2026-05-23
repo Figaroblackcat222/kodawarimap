@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 
 const DISMISS_KEY = "kodawarimap:pwa-dismiss-time";
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 function isDismissed(): boolean {
   const t = localStorage.getItem(DISMISS_KEY);
   if (!t) return false;
-  return Date.now() - Number(t) < TWO_HOURS_MS;
+  return Date.now() - Number(t) < ONE_HOUR_MS;
 }
 
 export function PwaUpdateDialog() {
@@ -15,6 +15,7 @@ export function PwaUpdateDialog() {
   const [needsUpdate] = needRefresh;
   const [visible, setVisible] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const needsUpdateRef = useRef(needsUpdate);
 
   const checkAndShow = useCallback(() => {
     if (needsUpdate && !isDismissed()) {
@@ -22,6 +23,12 @@ export function PwaUpdateDialog() {
     }
   }, [needsUpdate]);
 
+  // タブ再オープン（ページロード）時: スヌーズ無視で即表示
+  useEffect(() => {
+    if (needsUpdateRef.current) setVisible(true);
+  }, []);
+
+  // セッション中に SW が検知されたとき: スヌーズを尊重
   useEffect(() => {
     checkAndShow();
   }, [checkAndShow]);
@@ -31,7 +38,7 @@ export function PwaUpdateDialog() {
       if (document.visibilityState === "visible") checkAndShow();
     };
     document.addEventListener("visibilitychange", onVisibility);
-    timerRef.current = setInterval(checkAndShow, TWO_HOURS_MS);
+    timerRef.current = setInterval(checkAndShow, ONE_HOUR_MS);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       if (timerRef.current) clearInterval(timerRef.current);
