@@ -189,7 +189,7 @@ export function PinListSheet({
     { type: "all" } | { type: "one"; pin: Pin } | null
   >(null);
 
-  const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const dragRef = useRef<{ startY: number; startHeight: number; dragging: boolean } | null>(null);
 
   const handleCollapseToggle = useCallback(() => {
     if (sheetHeight <= MIN_HEIGHT) {
@@ -201,8 +201,7 @@ export function PinListSheet({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      e.currentTarget.setPointerCapture(e.pointerId);
-      dragRef.current = { startY: e.clientY, startHeight: sheetHeight };
+      dragRef.current = { startY: e.clientY, startHeight: sheetHeight, dragging: false };
     },
     [sheetHeight]
   );
@@ -210,6 +209,12 @@ export function PinListSheet({
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!dragRef.current) return;
+      const moved = Math.abs(e.clientY - dragRef.current.startY);
+      if (!dragRef.current.dragging) {
+        if (moved < 8) return;
+        dragRef.current.dragging = true;
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }
       const delta = dragRef.current.startY - e.clientY;
       const newHeight = dragRef.current.startHeight + delta;
       const maxH = Math.round(window.innerHeight * MAX_HEIGHT_RATIO);
@@ -220,13 +225,15 @@ export function PinListSheet({
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      e.currentTarget.releasePointerCapture(e.pointerId);
+      if (dragRef.current?.dragging) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+        const snaps = snapHeights();
+        const nearest = snaps.reduce((best, s) =>
+          Math.abs(s - sheetHeight) < Math.abs(best - sheetHeight) ? s : best
+        );
+        onSheetHeightChange(nearest);
+      }
       dragRef.current = null;
-      const snaps = snapHeights();
-      const nearest = snaps.reduce((best, s) =>
-        Math.abs(s - sheetHeight) < Math.abs(best - sheetHeight) ? s : best
-      );
-      onSheetHeightChange(nearest);
     },
     [sheetHeight, onSheetHeightChange]
   );
@@ -647,7 +654,10 @@ export function PinListSheet({
 
                   {/* フィルターセクションボタン（絞り込みバー展開時のみ表示） */}
                   {isFilterBarOpen && (
-                    <div style={{ display: "flex", gap: 4 }}>
+                    <div
+                      onPointerDown={(e) => e.stopPropagation()}
+                      style={{ display: "flex", gap: 4 }}
+                    >
                       <SectionFilterButton
                         label="カテゴリー"
                         active={openSection === "category"}
@@ -1255,7 +1265,7 @@ function SectionFilterButton({
         alignItems: "center",
         justifyContent: "center",
         gap: 3,
-        padding: "6px 4px",
+        padding: "10px 6px",
         border: "1px solid",
         borderColor: hasFilter ? color : "var(--border)",
         borderRadius: 8,
