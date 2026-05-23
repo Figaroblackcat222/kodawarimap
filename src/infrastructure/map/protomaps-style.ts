@@ -22,7 +22,12 @@ function buildStyle(flavor: typeof LIGHT): StyleSpecification {
         attribution: ATTRIBUTION,
       },
     },
-    layers: layers(SOURCE_NAME, flavor, { lang: "ja" }),
+    layers: layers(SOURCE_NAME, flavor, { lang: "ja" }).map((l) => {
+      if (l.id !== "roads_oneway") return l;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { "icon-image": _removed, ...rest } = (l.layout ?? {}) as Record<string, unknown>;
+      return { ...l, layout: rest };
+    }),
   };
 }
 

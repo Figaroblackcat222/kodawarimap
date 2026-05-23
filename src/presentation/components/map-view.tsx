@@ -1052,6 +1052,13 @@ export function MapView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poiFeatures]);
 
+  const handleFilteredPinsChange = useCallback(
+    (filtered: Pin[]) => {
+      setFilteredPinIds(filtered.length < pins.length ? new Set(filtered.map((p) => p.id)) : null);
+    },
+    [pins]
+  );
+
   const [cycleIndex, setCycleIndex] = useState(0);
 
   const handleTickerScrollEnd = useCallback(() => {
@@ -1128,11 +1135,7 @@ export function MapView() {
         onListScopeChange={handleListScopeChange}
         mapBounds={mapBounds}
         tagKeywords={tagKeywords}
-        onFilteredPinsChange={(filtered) => {
-          setFilteredPinIds(
-            filtered.length < pins.length ? new Set(filtered.map((p) => p.id)) : null
-          );
-        }}
+        onFilteredPinsChange={handleFilteredPinsChange}
       />
       {longPressPin && (
         <div
