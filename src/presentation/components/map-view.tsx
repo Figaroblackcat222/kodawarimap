@@ -36,6 +36,7 @@ import { authService } from "@infrastructure/sync/auth-service";
 import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
 import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
 import { db } from "@infrastructure/persistence/db";
+import { findAdminName } from "@infrastructure/geocoder/admin-geocoder";
 
 const repo = dexiePinRepository;
 
@@ -689,10 +690,12 @@ export function MapView() {
     async (lng: number, lat: number) => {
       const map = mapRef.current;
       const placeName = map ? getPlaceName(map, lng, lat) : null;
-      const title = placeName ?? `ピン ${pins.length + 1}`;
+      const adminName = await findAdminName(lng, lat);
+      const location = adminName ? (placeName ? `${adminName}${placeName}` : adminName) : placeName;
+      const title = placeName ?? adminName ?? `ピン ${pins.length + 1}`;
       let pin = await addPin(repo, { lng, lat }, title, createHlc(getNodeId()), category.id);
-      if (placeName) {
-        pin = { ...pin, location: placeName };
+      if (location) {
+        pin = { ...pin, location };
         await repo.save(pin);
       }
       setPins((prev) => [...prev, pin]);
@@ -849,7 +852,10 @@ export function MapView() {
     } = provisionalPinData;
     const map = mapRef.current;
     const placeName = map ? getPlaceName(map, lng, lat) : null;
-    const resolvedTitle = titleIsFile && placeName ? placeName : title;
+    const adminName = await findAdminName(lng, lat);
+    const location = adminName ? (placeName ? `${adminName}${placeName}` : adminName) : placeName;
+    const resolvedTitle =
+      titleIsFile && (placeName ?? adminName) ? (placeName ?? adminName)! : title;
     try {
       let pin = await addPin(
         repo,
@@ -859,10 +865,10 @@ export function MapView() {
         categoryId,
         pinExif
       );
-      if (placeName || shoppingItems) {
+      if (location || shoppingItems) {
         pin = {
           ...pin,
-          ...(placeName ? { location: placeName } : {}),
+          ...(location ? { location } : {}),
           ...(shoppingItems ? { shoppingItems } : {}),
         };
         await repo.save(pin);

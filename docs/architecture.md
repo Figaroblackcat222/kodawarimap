@@ -86,6 +86,8 @@ src/
 │   │   ├── overpass-client.ts     # Overpass API・OSMタグ→categoryIdマッピング（12カテゴリー）
 │   │   ├── poi-loader.ts          # ローカルキャッシュ→R2→Overpass優先順（localStorageキャッシュ）
 │   │   └── tile-utils.ts          # lngLatToTile / tileToBbox
+│   ├── geocoder/
+│   │   └── admin-geocoder.ts      # 国土数値情報N03由来の市区町村重心点（R2: admin/municipalities.geojson）をロード・メモリキャッシュ。findAdminName(lng,lat)で最寄り市区町村名を返す（外部API不使用・オフライン動作）
 │   └── cache/                     # TileCacheAdapter（未実装）
 └── presentation/                  # React コンポーネント / hooks
     ├── hooks/
@@ -99,6 +101,8 @@ src/
         ├── map-view.tsx            # メインビュー（起動時IndexedDB key_storeからCryptoKey読込→あればSyncSetupSheet非表示・ログアウト時key_store削除・useSync統合・設定ボタン top:48 right:8）
         │                           # 同期タイミング: 起動時1回・オンライン復帰時・保存/削除/復元後3秒デバウンス・30分定期ポーリング
         │                           # 現在地マーカー: locationMarkerRef 管理・青点(18px)＋2秒パルスアニメーション
+        │                           # ピン作成時: findAdminName(県市名)＋getPlaceName(PMTiles地区名)を結合してlocationフィールドに設定（例:「東京都渋谷区恵比寿」）。タイトル自動設定もadminNameにフォールバック
+        │                           # マーカーポップアップのgetPhotoInfo: thumbnailPhotoIdを優先・shoppingItemId写真を除外してサムネイルを取得
         ├── sync-setup-sheet.tsx    # 同期セットアップ（auth/申請(request)/reenterの3モード。authモード: ログイン専用＋「申請する」リンク。requestモード: メール+パスフレーズ確認+salt生成→requestRegistration。reenterモード: パスフレーズのみ）
         ├── sync-status-indicator.tsx # 同期状態表示（top:92 right:8・設定ボタン下）
         │                           # idle=緑チェック（タップで即時同期）/syncing=スピナー/error=橙三角（タップ再試行）/offline=灰WifiOff
@@ -137,6 +141,7 @@ workers/                           # Cloudflare Workers バックエンド
 │   └── 0003_registration_requests.sql # registration_requests（id/email/password_hash/salt/requested_at）
 └── wrangler.toml                  # DB: kodawarimap-sync・R2: kodawarimap-photos・cron: 0 3 * * *・REGISTRATION_OPEN='false'
 scripts/
+├── build-admin-centroids.mjs  # 国土数値情報N03 GeoJSONから市区町村重心点GeoJSONを生成 → R2 admin/municipalities.geojson にアップロード
 ├── build-poi-tiles-local.mjs  # ローカルOSM PBFからPOI z8タイルを一括生成
 └── fetch-poi-tiles.mjs        # Overpass APIからz8タイル単位でPOI取得
 ```

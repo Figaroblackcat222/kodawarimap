@@ -56,6 +56,7 @@ src/
 │   │                    # overpass-client.ts（Overpass API呼び出し・名前付きPOIのみ取得・OSMタグ→categoryIdマッピング（12カテゴリー）・GeoJSON変換）,
 │   │                    # poi-loader.ts（ローカルキャッシュ→R2タイル→Overpassの優先順で取得・z8タイル単位でlocalStorageキャッシュ）,
 │   │                    # tile-utils.ts（lngLatToTile / tileToBbox: z8タイル座標計算ユーティリティ）
+│   ├── geocoder/        # admin-geocoder.ts（国土数値情報N03由来の市区町村重心点GeoJSONをR2から取得・メモリキャッシュ。findAdminName(lng,lat)で最寄り市区町村名（例:「東京都渋谷区」）を返す。R2パス: admin/municipalities.geojson）
 │   └── cache/           # TileCache（未実装・PMTiles移行後）
 └── presentation/
     ├── hooks/           # use-sync.ts（pull+push+pullPhotoSyncをtabCoordinator経由で実行・syncState管理・sync完了後にonSyncComplete通知。getPlan()!=='pro'なら同期をスキップ（クライアント保険）。extractExifFromBlob を pullPhotoSync に渡してサーバー復元写真のEXIFを保持），
@@ -78,7 +79,7 @@ src/
     │                    # pwa-update-dialog（新SW待機時にダイアログ表示・「後で」は1時間スキップ・タブ再オープン（ページロード）時はスヌーズ無視で即表示・visibilitychange+タイマーで再表示（スヌーズ尊重）・useRegisterSW使用）,
     │                    # message-ticker（地図上部ガイドメッセージ・height:40px・font-size:14px・左端に固定ラベル表示（【はじめに】【ヒント】）・静止3秒→左スクロール（1回）→onScrollEndで次メッセージのサイクル・静止中は左12px マージン付き・×で左端に折りたたみ（▶ボタン）・localStorage: ticker-enabled/ticker-collapsed・ピン選択中も含めて常時サイクル（selectedPin 時の固定メッセージなし）），
     │                    # geocoder-search（Nominatim地名検索・収縮/展開ボタン（top:48 right:96）・展開時 top:48 left:50 right:96（ズームコントロール・リロード・設定ボタン非重複）・debounce 400ms・flyTo・© OpenStreetMap contributors表示）,
-    │                    # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ・handleCreateCopyFromPin: ショッピングピンのリストをコピーして同座標に新ピン作成・再訪時にProvisionalPinDataへshoppingItems継承（チェックリセット）・リロードボタン（top:48 right:52・RotateCw・window.location.reload()・PWAのスマホ登録時のリロード手段として追加））
+    │                    # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ・handleCreateCopyFromPin: ショッピングピンのリストをコピーして同座標に新ピン作成・再訪時にProvisionalPinDataへshoppingItems継承（チェックリセット）・リロードボタン（top:48 right:52・RotateCw・window.location.reload()・PWAのスマホ登録時のリロード手段として追加）・ピン作成時（ダブルクリック・仮置き確定の両経路）にfindAdminNameで県市名を取得しPMTiles地区名と結合して location フィールドに設定（例:「東京都渋谷区恵比寿」）・タイトル自動設定も adminName にフォールバック・getPhotoInfoがthumbnailPhotoIdを優先しshoppingItemId写真を除外してポップアップサムネイルを構築）
 workers/
 ├── src/
 │   ├── index.ts         # ルーティング + scheduled（30日tombstone削除・refresh_token期限切れ削除）
@@ -112,6 +113,8 @@ workers/
 public/                      # PWA静的アセット（アイコン・favicon）
 scripts/
 ├── generate-icons.mjs           # PWAアイコン生成スクリプト（Node.js）
+├── build-admin-centroids.mjs    # 国土数値情報N03 GeoJSONから市区町村重心点GeoJSONを生成（約1,900件・数十KB）
+│                                # 使い方: N03_*.geojson をダウンロード → node scripts/build-admin-centroids.mjs N03_*.geojson → wrangler r2 object put kodawarimap-photos/admin/municipalities.geojson --file admin-centroids.geojson
 ├── build-poi-tiles-local.mjs    # ローカルOSM PBFからPOI z8タイルを一括生成（osmium-tool使用・Overpass API不使用・全12カテゴリー・日本全国を数分で処理）
 │                                # 使い方: brew install osmium-tool → curl -L -o japan-latest.osm.pbf https://download.geofabrik.de/asia/japan-latest.osm.pbf → node scripts/build-poi-tiles-local.mjs
 └── fetch-poi-tiles.mjs          # Overpass APIからz8タイル単位でPOI取得（カテゴリー別クエリ・overpass.private.coffee・--countフラグ・504時bbox4分割リトライ）
