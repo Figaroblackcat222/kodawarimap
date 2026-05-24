@@ -268,6 +268,7 @@ function createMockPhotoRepository(
     restore: vi.fn().mockResolvedValue(undefined),
     findByPinId: vi.fn().mockResolvedValue(allPhotos),
     updateComment: vi.fn().mockResolvedValue(undefined),
+    updateExif: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
     deleteByPinId: vi.fn().mockResolvedValue(undefined),
     findModifiedSince: vi.fn().mockResolvedValue([]),
