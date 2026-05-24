@@ -28,7 +28,7 @@ import { CurrentLocationButton } from "./current-location-button";
 import { SettingsSheet } from "./settings-sheet";
 import { MessageTicker } from "./message-ticker";
 import { GeocoderSearch } from "./geocoder-search";
-import { Settings } from "lucide-react";
+import { Settings, RotateCw } from "lucide-react";
 import { useSync } from "@presentation/hooks/use-sync";
 import { SyncSetupSheet } from "./sync-setup-sheet";
 import { SyncStatusIndicator } from "./sync-status-indicator";
@@ -1245,6 +1245,30 @@ export function MapView() {
       {authService.isLoggedIn() && (
         <SyncStatusIndicator syncState={syncState} onRetry={triggerSync} />
       )}
+
+      {/* リロードボタン */}
+      <button
+        onClick={() => window.location.reload()}
+        style={{
+          position: "absolute",
+          top: 48,
+          right: 52,
+          zIndex: 10,
+          background: "var(--bg-primary)",
+          border: "none",
+          borderRadius: 8,
+          width: 36,
+          height: 36,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          boxShadow: "0 2px 8px var(--shadow)",
+        }}
+        title="リロード"
+      >
+        <RotateCw size={18} color="var(--text-secondary)" />
+      </button>
 
       {/* 設定ボタン */}
       <button

@@ -75,7 +75,7 @@ export function GeocoderSearch({ map }: Props) {
         style={{
           position: "absolute",
           top: 48,
-          right: 52,
+          right: 96,
           zIndex: 10,
           background: "var(--bg-primary)",
           border: "none",
@@ -101,7 +101,7 @@ export function GeocoderSearch({ map }: Props) {
         position: "absolute",
         top: 48,
         left: 50,
-        right: 52,
+        right: 96,
         zIndex: 20,
       }}
     >
