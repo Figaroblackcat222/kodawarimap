@@ -18,6 +18,7 @@ export interface PhotoRepository {
   restore(photo: Photo): Promise<void>;
   findByPinId(pinId: PinId): Promise<Photo[]>;
   updateComment(id: string, comment: string | undefined): Promise<void>;
+  updateExif(id: string, exif: PhotoExif): Promise<void>;
   delete(id: string): Promise<void>;
   deleteByPinId(pinId: PinId): Promise<void>;
   findModifiedSince(hlcPhysical: number, hlcLogical: number): Promise<Photo[]>;

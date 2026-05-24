@@ -136,6 +136,19 @@ export const dexiePhotoRepository: PhotoRepository = {
     await db.photos.update(id, { comment });
   },
 
+  async updateExif(id: string, exif: PhotoExif): Promise<void> {
+    await db.photos.update(id, {
+      exifTakenAt: exif.takenAt,
+      exifTakenAtEstimated: exif.takenAtEstimated,
+      exifCameraMake: exif.cameraMake,
+      exifCameraModel: exif.cameraModel,
+      exifFNumber: exif.fNumber,
+      exifExposureTime: exif.exposureTime,
+      exifFocalLength: exif.focalLength,
+      exifIso: exif.iso,
+    });
+  },
+
   async restore(photo: Photo): Promise<void> {
     await db.photos.put({
       id: photo.id,

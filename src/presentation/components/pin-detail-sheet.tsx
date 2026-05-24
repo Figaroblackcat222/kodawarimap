@@ -173,11 +173,49 @@ export function PinDetailSheet({
 
   useEffect(() => {
     let cancelled = false;
-    photoRepo.findByPinId(pin.id).then((result) => {
+    photoRepo.findByPinId(pin.id).then(async (result) => {
       if (!cancelled) {
         setPhotos(result);
         setPhotoComments(new Map(result.map((p) => [p.id, p.comment ?? ""])));
         initialPhotoCountRef.current = result.length;
+      }
+
+      // EXIFが未保存の写真はblobから再抽出してDBと状態を更新する
+      const needsExif = result.filter((p) => !p.exif && p.blob);
+      if (needsExif.length === 0) return;
+      const updated = new Map(result.map((p) => [p.id, p]));
+      let anyUpdated = false;
+      for (const photo of needsExif) {
+        if (cancelled) break;
+        try {
+          const exifData = await parseExif(photo.blob);
+          const hasFields =
+            exifData.takenAt ||
+            exifData.cameraMake ||
+            exifData.fNumber != null ||
+            exifData.exposureTime != null ||
+            exifData.focalLength != null ||
+            exifData.iso != null;
+          if (!hasFields) continue;
+          const exif: PhotoExif = {
+            takenAt: exifData.takenAt,
+            takenAtEstimated: undefined,
+            cameraMake: exifData.cameraMake,
+            cameraModel: exifData.cameraModel,
+            fNumber: exifData.fNumber,
+            exposureTime: exifData.exposureTime,
+            focalLength: exifData.focalLength,
+            iso: exifData.iso,
+          };
+          await photoRepo.updateExif(photo.id, exif);
+          updated.set(photo.id, { ...photo, exif });
+          anyUpdated = true;
+        } catch {
+          // 個別写真の失敗は無視
+        }
+      }
+      if (anyUpdated && !cancelled) {
+        setPhotos(result.map((p) => updated.get(p.id) ?? p));
       }
     });
     return () => {
