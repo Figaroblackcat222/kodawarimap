@@ -58,7 +58,7 @@ src/
 │       ├── delete-photo.ts        # 写真を削除
 │       ├── pull-sync.ts           # サーバー→IndexedDB（HLC LWW マージ・復号・tombstone処理）
 │       ├── push-sync.ts           # IndexedDB→サーバー（暗号化push・失敗時SyncQueueへenqueue・写真push含む）
-│       └── pull-photo-sync.ts     # 全ピン分のR2写真を一括ダウンロード（sync時に自動実行）
+│       └── pull-photo-sync.ts     # 全ピン分のR2写真を一括ダウンロード（sync時に自動実行）。extractExif? オプション callback で復号blobからEXIF再抽出・保存
 ├── infrastructure/                # port の実装（adapter）
 │   ├── persistence/
 │   │   ├── db.ts                  # KodawarimapDB（Dexie v4, v13スキーマ: v12にkey_storeテーブル追加（CryptoKey永続化）。sync_queue・pins/photosのhlcはv12新規）
@@ -74,7 +74,7 @@ src/
 │   ├── admin/
 │   │   └── admin-api-client.ts    # 管理画面API（listUsers/updateUserPlan/listRegistrationRequests/approveRegistration/rejectRegistration）
 │   ├── exif/
-│   │   └── exif-parser.ts         # exifr を使ったExif解析
+│   │   └── exif-parser.ts         # exifr を使ったExif解析（File | Blob 対応。sync復元時の再抽出にも使用）
 │   ├── image/
 │   │   ├── normalize-photo.ts     # HEIC/HEIF → JPEG 変換（heic-to）
 │   │   └── write-exif.ts          # JPEGへのEXIF書き戻し（piexifjs）+ ダウンロード実行
@@ -89,7 +89,7 @@ src/
 │   └── cache/                     # TileCacheAdapter（未実装）
 └── presentation/                  # React コンポーネント / hooks
     ├── hooks/
-    │   ├── use-sync.ts            # pull+push+pullPhotoSyncをtabCoordinator経由で実行・syncState管理・sync完了後refreshLists通知。getPlan()!=='pro'なら同期スキップ（クライアント保険）
+    │   ├── use-sync.ts            # pull+push+pullPhotoSyncをtabCoordinator経由で実行・syncState管理・sync完了後refreshLists通知。getPlan()!=='pro'なら同期スキップ（クライアント保険）。extractExifFromBlob を pullPhotoSync に渡してサーバー復元写真のEXIFを保持
     │   └── use-key-derivation.ts  # パスフレーズ→CryptoKey導出（salt: localStorage kdm:sync-salt）
     ├── admin/
     │   ├── admin-app.tsx          # /admin ルート（ログイン→role='admin'確認→RegistrationRequestsTable＋UserListTable）
@@ -106,7 +106,7 @@ src/
         ├── photo-upload-button.tsx # 写真追加ボタン（左下・bottom: sheetHeight+8・テキスト常時表示）
         ├── category-selector.tsx   # カテゴリー選択ピル（タップで2列グリッド展開）
         ├── pin-list-sheet.tsx      # ボトムシート（11段階スナップ・フィルター・ソート・ショッピングバッジ）
-        ├── pin-detail-sheet.tsx    # ピン詳細・編集・lightbox（syncRepository/encryptionKey props経由で遅延写真ロード）
+        ├── pin-detail-sheet.tsx    # ピン詳細・編集・lightbox（syncRepository/encryptionKey props経由で遅延写真ロード。復元時に復号blobからEXIF再抽出して保存）
         ├── cluster-sheet.tsx       # 同座標ピン一覧シート
         ├── current-location-button.tsx # 現在地flyToボタン（top:160 left:8）・取得後に flyTo＋青点マーカーを地図上に表示
         ├── settings-sheet.tsx      # 設定（地図・エクスポート・インポート・同期セクション（Proバッジ・ログアウト時onLogoutコールバックでkey_store削除）・バックアップ30日警告）
@@ -318,7 +318,7 @@ lightカテゴリーは「昼夜自動テーマ」ON・夜間時刻帯のとき 
        ├─ PC/スマホ共通: キーボード ←→ で切り替え・Escape で閉じる
        ├─ 背景タップで閉じる（スワイプ距離10px未満を「タップ」判定）
        ├─ 2本指ピンチズーム（0.5x〜5x）: scale > 1.05 のときスワイプナビゲーション無効・写真切替時にリセット
-       ├─ 写真ごとの EXIF（カメラ機種・F値・SS・焦点距離・ISO・撮影日時）と位置インジケーター（n/m）を表示
+       ├─ 写真ごとの EXIF（カメラ機種・F値・SS・焦点距離・ISO・撮影日時）と位置インジケーター（n/m）を表示（sync復元写真は復号blob再解析でEXIFを復元済み）
        └─ ダウンロード許可ONのときダウンロードボタン（↓）を表示 → downloadPhoto()
             ├─ HEIC変換済みJPEG: writeExifToJpeg() でDBのEXIFを書き戻し（piexifjs）
             ├─ Chrome/Edge: showSaveFilePicker で保存先ダイアログ（AbortErrorは無視）

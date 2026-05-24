@@ -15,8 +15,36 @@ import { pullSync } from "@application/use-cases/pull-sync";
 import { pullPhotoSync } from "@application/use-cases/pull-photo-sync";
 import { pushSync } from "@application/use-cases/push-sync";
 import { authService } from "@infrastructure/sync/auth-service";
+import { parseExif } from "@infrastructure/exif/exif-parser";
+import type { PhotoExif } from "@domain/entities/photo";
 
 export type SyncState = "idle" | "syncing" | "error" | "offline" | "unauthenticated";
+
+async function extractExifFromBlob(blob: Blob): Promise<PhotoExif | undefined> {
+  try {
+    const data = await parseExif(blob);
+    const hasFields =
+      data.takenAt ||
+      data.cameraMake ||
+      data.fNumber != null ||
+      data.exposureTime != null ||
+      data.focalLength != null ||
+      data.iso != null;
+    if (!hasFields) return undefined;
+    return {
+      takenAt: data.takenAt,
+      takenAtEstimated: undefined,
+      cameraMake: data.cameraMake,
+      cameraModel: data.cameraModel,
+      fNumber: data.fNumber,
+      exposureTime: data.exposureTime,
+      focalLength: data.focalLength,
+      iso: data.iso,
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 const LS_LAST_HLC_PHYSICAL = "kdm:last-sync-hlc-physical";
 const LS_LAST_HLC_LOGICAL = "kdm:last-sync-hlc-logical";
@@ -112,7 +140,8 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
           dexiePinRepository,
           dexiePhotoRepository,
           webCryptoService,
-          encryptionKey
+          encryptionKey,
+          extractExifFromBlob
         );
 
         // 同期完了を他タブに通知

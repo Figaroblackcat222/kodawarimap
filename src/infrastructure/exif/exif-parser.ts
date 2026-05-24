@@ -1,7 +1,7 @@
 import exifr from "exifr";
 import type { ExifData } from "@domain/value-objects/exif-data";
 
-export async function parseExif(file: File): Promise<ExifData> {
+export async function parseExif(file: File | Blob): Promise<ExifData> {
   let raw: Record<string, unknown> | null | undefined;
   try {
     raw = await exifr.parse(file, {

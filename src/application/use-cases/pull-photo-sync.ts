@@ -8,14 +8,15 @@ import type { SyncRepository } from "@application/ports/sync-repository";
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { PhotoRepository } from "@application/ports/photo-repository";
 import type { CryptoService } from "@application/ports/crypto-service";
-import type { Photo } from "@domain/entities/photo";
+import type { Photo, PhotoExif } from "@domain/entities/photo";
 
 export async function pullPhotoSync(
   syncRepo: SyncRepository,
   pinRepo: PinRepository,
   photoRepo: PhotoRepository,
   cryptoService: CryptoService,
-  encryptionKey: CryptoKey
+  encryptionKey: CryptoKey,
+  extractExif?: (blob: Blob) => Promise<PhotoExif | undefined>
 ): Promise<{ downloadedCount: number }> {
   const pins = await pinRepo.findAll();
   if (pins.length === 0) return { downloadedCount: 0 };
@@ -41,12 +42,14 @@ export async function pullPhotoSync(
         const encryptedBuffer = await syncRepo.fetchPhotoBinary(remote.id);
         const decryptedBuffer = await cryptoService.decryptBinary(encryptionKey, encryptedBuffer);
         const blob = new Blob([decryptedBuffer], { type: "image/jpeg" });
+        const exif = extractExif ? await extractExif(blob).catch(() => undefined) : undefined;
 
         const photo: Photo = {
           id: remote.id,
           pinId: pin.id,
           blob,
           mimeType: "image/jpeg",
+          exif,
           createdAt: new Date(remote.hlcPhysical),
           hlc: { physical: remote.hlcPhysical, logical: remote.hlcLogical, nodeId: "remote" },
           syncedAt: new Date(),

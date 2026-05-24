@@ -213,15 +213,39 @@ export function PinDetailSheet({
               encryptionKey,
               encryptedBuffer
             );
-            const blob = new Blob([decryptedBuffer]);
-            // restore に必要な最低限の Photo オブジェクトを組み立てる
-            // メタデータはサーバーから取得できないため、基本情報のみ設定
+            const blob = new Blob([decryptedBuffer], { type: "image/jpeg" });
             const remoteRecord = remoteList.find((r) => r.id === photoId);
+            let restoredExif: PhotoExif | undefined;
+            try {
+              const exifData = await parseExif(blob);
+              const hasFields =
+                exifData.takenAt ||
+                exifData.cameraMake ||
+                exifData.fNumber != null ||
+                exifData.exposureTime != null ||
+                exifData.focalLength != null ||
+                exifData.iso != null;
+              if (hasFields) {
+                restoredExif = {
+                  takenAt: exifData.takenAt ?? new Date(remoteRecord?.hlcPhysical ?? Date.now()),
+                  takenAtEstimated: exifData.takenAt == null ? true : undefined,
+                  cameraMake: exifData.cameraMake,
+                  cameraModel: exifData.cameraModel,
+                  fNumber: exifData.fNumber,
+                  exposureTime: exifData.exposureTime,
+                  focalLength: exifData.focalLength,
+                  iso: exifData.iso,
+                };
+              }
+            } catch {
+              // EXIF抽出失敗は無視
+            }
             const photo: Photo = {
               id: photoId,
               pinId: pin.id,
               blob,
               mimeType: "image/jpeg",
+              exif: restoredExif,
               createdAt: new Date(remoteRecord?.hlcPhysical ?? Date.now()),
               hlc: {
                 physical: remoteRecord?.hlcPhysical ?? Date.now(),
