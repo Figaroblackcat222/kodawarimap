@@ -38,6 +38,7 @@ export function UserListTable() {
 
   const handleTogglePlan = async (user: AdminUser) => {
     const newPlan = user.plan === "pro" ? "free" : "pro";
+    if (newPlan === "free" && !confirm(`${user.email} を Free に降格しますか？`)) return;
     setUpdatingId(user.id);
     try {
       await adminApiClient.updateUserPlan(user.id, newPlan);
@@ -185,14 +186,18 @@ export function UserListTable() {
                     disabled={updatingId === user.id}
                     style={{
                       padding: "4px 12px",
-                      border: "1px solid",
+                      border: "none",
                       borderRadius: 4,
                       fontSize: 12,
                       fontWeight: 600,
                       cursor: updatingId === user.id ? "not-allowed" : "pointer",
-                      background: user.plan === "pro" ? "#fff" : "#6366f1",
-                      color: user.plan === "pro" ? "#6366f1" : "#fff",
-                      borderColor: "#6366f1",
+                      background:
+                        updatingId === user.id
+                          ? "#e5e7eb"
+                          : user.plan === "pro"
+                            ? "#ef4444"
+                            : "#6366f1",
+                      color: updatingId === user.id ? "#9ca3af" : "#fff",
                       opacity: updatingId === user.id ? 0.6 : 1,
                       whiteSpace: "nowrap",
                     }}
