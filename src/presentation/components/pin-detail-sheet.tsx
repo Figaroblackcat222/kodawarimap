@@ -279,6 +279,20 @@ export function PinDetailSheet({
             } catch {
               // EXIF抽出失敗は無視
             }
+            let restoredShoppingItemId: string | undefined;
+            if (remoteRecord?.encryptedMeta && remoteRecord?.metaIv && cryptoService) {
+              try {
+                const metaJson = await cryptoService.decrypt(
+                  encryptionKey!,
+                  remoteRecord.encryptedMeta,
+                  remoteRecord.metaIv
+                );
+                const meta = JSON.parse(metaJson) as { data?: { shoppingItemId?: string } };
+                restoredShoppingItemId = meta.data?.shoppingItemId;
+              } catch {
+                // メタデータ復号失敗は無視
+              }
+            }
             const photo: Photo = {
               id: photoId,
               pinId: pin.id,
@@ -292,6 +306,7 @@ export function PinDetailSheet({
                 nodeId: "remote",
               },
               syncedAt: new Date(),
+              shoppingItemId: restoredShoppingItemId,
             };
             await photoRepo.restore(photo);
             restoredPhotos.push(photo);
@@ -339,6 +354,11 @@ export function PinDetailSheet({
     setPendingAddIds([]);
     setPendingItemPhotoIds([]);
     await Promise.all(pendingDeleteIds.map((id) => photoRepo.delete(id)));
+    if (syncRepository && pendingDeleteIds.length > 0) {
+      await Promise.all(
+        pendingDeleteIds.map((id) => syncRepository.deletePhoto(id).catch(() => {}))
+      );
+    }
     await Promise.all(
       Array.from(photoComments.entries())
         .filter(([id, c]) => c.trim() !== (photos.find((p) => p.id === id)?.comment?.trim() ?? ""))
