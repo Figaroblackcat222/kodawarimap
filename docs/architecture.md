@@ -46,7 +46,7 @@ src/
 │   │   ├── pin-repository.ts      # PinRepository（findModifiedSince追加）
 │   │   ├── photo-repository.ts    # PhotoRepository（findModifiedSince・markSynced・findUnsyncedPhotos・updateExif追加）
 │   │   ├── crypto-service.ts      # CryptoService（deriveKey/encrypt/decrypt/encryptBinary/decryptBinary/generateSalt）
-│   │   ├── sync-repository.ts     # SyncRepository（認証・fetchPinsSince・pushPin・fetchPhotoList・pushPhotoBinary・fetchPhotoBinary）
+│   │   ├── sync-repository.ts     # SyncRepository（認証・fetchPinsSince・pushPin・fetchPhotoList（encryptedMeta/metaIv含む）・pushPhotoBinary・fetchPhotoBinary・deletePhoto）
 │   │   └── sync-queue-repository.ts # SyncQueueRepository（enqueue/peekDue/markRetry/remove/coalesce）
 │   └── use-cases/
 │       ├── add-pin.ts             # ピン追加（HLC初期化含む）
@@ -58,7 +58,7 @@ src/
 │       ├── delete-photo.ts        # 写真を削除
 │       ├── pull-sync.ts           # サーバー→IndexedDB（HLC LWW マージ・復号・tombstone処理）
 │       ├── push-sync.ts           # IndexedDB→サーバー（暗号化push・失敗時SyncQueueへenqueue・写真push含む）
-│       └── pull-photo-sync.ts     # 全ピン分のR2写真を一括ダウンロード（sync時に自動実行）。extractExif? オプション callback で復号blobからEXIF再抽出・保存
+│       └── pull-photo-sync.ts     # 全ピン分のR2写真を一括ダウンロード（sync時に自動実行）。encryptedMeta/metaIvを復号してshoppingItemIdを復元。extractExif? オプション callback で復号blobからEXIF再抽出・保存
 ├── infrastructure/                # port の実装（adapter）
 │   ├── persistence/
 │   │   ├── db.ts                  # KodawarimapDB（Dexie v4, v13スキーマ: v12にkey_storeテーブル追加（CryptoKey永続化）。sync_queue・pins/photosのhlcはv12新規）
@@ -106,7 +106,7 @@ src/
         ├── photo-upload-button.tsx # 写真追加ボタン（左下・bottom: sheetHeight+8・テキスト常時表示）
         ├── category-selector.tsx   # カテゴリー選択ピル（タップで2列グリッド展開）
         ├── pin-list-sheet.tsx      # ボトムシート（11段階スナップ・フィルター・ソート・ショッピングバッジ）
-        ├── pin-detail-sheet.tsx    # ピン詳細・編集・lightbox（syncRepository/encryptionKey props経由で遅延写真ロード。復元時に復号blobからEXIF再抽出して保存。初回ロード時にexif未保存の既存写真もblobから再抽出しupdateExif()でDB永続化）
+        ├── pin-detail-sheet.tsx    # ピン詳細・編集・lightbox（syncRepository/encryptionKey props経由で遅延写真ロード。遅延ロード時にencryptedMeta/metaIvを復号してshoppingItemIdを復元。handleSave時にpendingDeleteIdsをsyncRepository.deletePhoto()でサーバーからも削除。品目写真サムネイルタップで拡大表示（lightboxItemPhotoIdステート）。初回ロード時にexif未保存の既存写真もblobから再抽出しupdateExif()でDB永続化）
         ├── cluster-sheet.tsx       # 同座標ピン一覧シート
         ├── current-location-button.tsx # 現在地flyToボタン（top:160 left:8）・取得後に flyTo＋青点マーカーを地図上に表示
         ├── settings-sheet.tsx      # 設定（地図・エクスポート・インポート・同期セクション（Proバッジ・ログアウト時onLogoutコールバックでkey_store削除）・バックアップ30日警告）
@@ -129,7 +129,7 @@ workers/                           # Cloudflare Workers バックエンド
 │   └── routes/
 │       ├── auth.ts                # 認証API（register（REGISTRATION_OPEN制御）/login（plan/role返却）/refresh/logout/request-registration・ブルートフォース対策）
 │       ├── pins.ts                # ピン同期API（since取得・UPSERT・tombstone）全エンドポイントrequirePro
-│       ├── photos.ts              # 写真API（list・R2アップロード/取得/削除）全エンドポイントrequirePro
+│       ├── photos.ts              # 写真API（list（encryptedMeta/metaIv含む）・R2アップロード/取得/削除）全エンドポイントrequirePro
 │       └── admin.ts               # 管理API（全エンドポイントrequireAdmin）: GET/PATCH /api/admin/users・GET /api/admin/registrations・POST approve・DELETE reject
 ├── migrations/
 │   ├── 0001_initial.sql           # D1スキーマ（users・pins_sync・photos_sync・refresh_tokens・login_attempts）

@@ -188,11 +188,18 @@ function getPlaceName(map: maplibregl.Map, lng: number, lat: number): string | n
   return (props["name:ja"] ?? props["name"] ?? null) as string | null;
 }
 
-async function getPhotoInfo(pinId: string): Promise<{ url: string | null; count: number }> {
+async function getPhotoInfo(
+  pinId: string,
+  thumbnailPhotoId?: string
+): Promise<{ url: string | null; count: number }> {
   const photos = await dexiePhotoRepository.findByPinId(pinId);
+  const galleryPhotos = photos.filter((p) => !p.shoppingItemId);
+  const thumb = thumbnailPhotoId
+    ? (galleryPhotos.find((p) => p.id === thumbnailPhotoId) ?? galleryPhotos[0])
+    : galleryPhotos[0];
   return {
-    url: photos.length > 0 ? URL.createObjectURL(photos[0].blob) : null,
-    count: photos.length,
+    url: thumb ? URL.createObjectURL(thumb.blob) : null,
+    count: galleryPhotos.length,
   };
 }
 
@@ -303,7 +310,7 @@ function createMarker(
     popup.setLngLat([pin.coordinates.lng, pin.coordinates.lat]).addTo(map);
     if (!thumbLoaded) {
       thumbLoaded = true;
-      getPhotoInfo(pin.id).then(({ url, count }) => {
+      getPhotoInfo(pin.id, pin.thumbnailPhotoId).then(({ url, count }) => {
         thumbUrl = url;
         photoCount = count;
         if (popup.isOpen()) {
