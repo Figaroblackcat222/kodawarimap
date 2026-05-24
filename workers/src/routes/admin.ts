@@ -144,6 +144,117 @@ async function handleUpdateUser(request: Request, env: Env, userId: string): Pro
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/admin/registrations
+// ---------------------------------------------------------------------------
+
+async function handleListRegistrations(request: Request, env: Env): Promise<Response> {
+  const origin = getOrigin(request);
+
+  const authResult = await requireAuth(request, env);
+  if (authResult instanceof Response) {
+    const body = await authResult.text();
+    return new Response(body, {
+      status: authResult.status,
+      headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
+    });
+  }
+  const adminError = requireAdmin(authResult);
+  if (adminError) return adminError;
+
+  const rows = await env.DB.prepare(
+    `SELECT id, email, requested_at FROM registration_requests ORDER BY requested_at DESC`
+  ).all<{ id: string; email: string; requested_at: string }>();
+
+  const requests = (rows.results ?? []).map((r) => ({
+    id: r.id,
+    email: r.email,
+    requestedAt: r.requested_at,
+  }));
+
+  return jsonResponse({ requests }, 200, origin, env.CORS_ORIGIN);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/registrations/:id/approve
+// ---------------------------------------------------------------------------
+
+async function handleApproveRegistration(
+  request: Request,
+  env: Env,
+  requestId: string
+): Promise<Response> {
+  const origin = getOrigin(request);
+
+  const authResult = await requireAuth(request, env);
+  if (authResult instanceof Response) {
+    const body = await authResult.text();
+    return new Response(body, {
+      status: authResult.status,
+      headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
+    });
+  }
+  const adminError = requireAdmin(authResult);
+  if (adminError) return adminError;
+
+  const reg = await env.DB.prepare(
+    `SELECT id, email, password_hash, salt FROM registration_requests WHERE id = ?`
+  )
+    .bind(requestId)
+    .first<{ id: string; email: string; password_hash: string; salt: string }>();
+
+  if (reg === null) {
+    return jsonResponse({ error: "Request not found" }, 404, origin, env.CORS_ORIGIN);
+  }
+
+  const existingUser = await env.DB.prepare("SELECT id FROM users WHERE email = ?")
+    .bind(reg.email)
+    .first<{ id: string }>();
+  if (existingUser !== null) {
+    await env.DB.prepare(`DELETE FROM registration_requests WHERE id = ?`).bind(requestId).run();
+    return jsonResponse({ ok: true }, 200, origin, env.CORS_ORIGIN);
+  }
+
+  const userId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO users (id, email, password_hash, salt, plan, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'pro', 'user', ?, ?)`
+    ).bind(userId, reg.email, reg.password_hash, reg.salt, now, now),
+    env.DB.prepare(`DELETE FROM registration_requests WHERE id = ?`).bind(requestId),
+  ]);
+
+  return jsonResponse({ ok: true }, 200, origin, env.CORS_ORIGIN);
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/admin/registrations/:id
+// ---------------------------------------------------------------------------
+
+async function handleRejectRegistration(
+  request: Request,
+  env: Env,
+  requestId: string
+): Promise<Response> {
+  const origin = getOrigin(request);
+
+  const authResult = await requireAuth(request, env);
+  if (authResult instanceof Response) {
+    const body = await authResult.text();
+    return new Response(body, {
+      status: authResult.status,
+      headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
+    });
+  }
+  const adminError = requireAdmin(authResult);
+  if (adminError) return adminError;
+
+  await env.DB.prepare(`DELETE FROM registration_requests WHERE id = ?`).bind(requestId).run();
+
+  return jsonResponse({ ok: true }, 200, origin, env.CORS_ORIGIN);
+}
+
+// ---------------------------------------------------------------------------
 // ルーター
 // ---------------------------------------------------------------------------
 
@@ -158,6 +269,20 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   const userIdMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
   if (userIdMatch && userIdMatch[1] !== undefined && method === "PATCH") {
     return handleUpdateUser(request, env, userIdMatch[1]);
+  }
+
+  if (path === "/api/admin/registrations" && method === "GET") {
+    return handleListRegistrations(request, env);
+  }
+
+  const approveMatch = path.match(/^\/api\/admin\/registrations\/([^/]+)\/approve$/);
+  if (approveMatch && approveMatch[1] !== undefined && method === "POST") {
+    return handleApproveRegistration(request, env, approveMatch[1]);
+  }
+
+  const rejectMatch = path.match(/^\/api\/admin\/registrations\/([^/]+)$/);
+  if (rejectMatch && rejectMatch[1] !== undefined && method === "DELETE") {
+    return handleRejectRegistration(request, env, rejectMatch[1]);
   }
 
   return jsonResponse({ error: "Not Found" }, 404, origin, env.CORS_ORIGIN);

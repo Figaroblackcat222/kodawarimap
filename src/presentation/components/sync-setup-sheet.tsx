@@ -12,6 +12,15 @@ import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-r
 import { authService } from "@infrastructure/sync/auth-service";
 import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
 
+/** Uint8Array を base64 文字列に変換 */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 /** base64 エンコード（ArrayBuffer → string） */
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -35,20 +44,25 @@ interface SyncSetupSheetProps {
   onSuccess: (key: CryptoKey) => void;
 }
 
-type ModeType = "auth" | "reenter";
+type ModeType = "auth" | "reenter" | "request";
 
 export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetProps) {
   const [email, setEmail] = useState("");
   const [passphrase, setPassphrase] = useState("");
+  const [passphraseConfirm, setPassphraseConfirm] = useState("");
   const [showPass, setShowPass] = useState(false);
+  const [showPassConfirm, setShowPassConfirm] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [requestSent, setRequestSent] = useState(false);
+  const [requestMode, setRequestMode] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
   // ログイン済みだが鍵がない状態（ページリロード後）
-  const mode: ModeType = authService.isLoggedIn() ? "reenter" : "auth";
+  const baseMode: "auth" | "reenter" = authService.isLoggedIn() ? "reenter" : "auth";
+  const mode: ModeType = baseMode === "auth" && requestMode ? "request" : baseMode;
 
   const isLoading = isSubmitting;
 
@@ -104,6 +118,38 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
     setErrorMessage(null);
   };
 
+  const handleRequest = async () => {
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      const passwordHash = await hashPassphrase(passphrase);
+      const saltBytes = webCryptoService.generateSalt();
+      const salt = uint8ToBase64(saltBytes);
+      await cloudflareSyncRepository.requestRegistration(email, passwordHash, salt);
+      setRequestSent(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "申請に失敗しました";
+      if (msg === "email_already_registered") {
+        setErrorMessage("このメールアドレスはすでに登録済みです。");
+      } else if (msg === "request_already_pending") {
+        setErrorMessage("このメールアドレスはすでに申請済みです。承認をお待ちください。");
+      } else {
+        setErrorMessage(msg);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const goToLogin = () => {
+    setRequestMode(false);
+    setRequestSent(false);
+    setEmail("");
+    setPassphrase("");
+    setPassphraseConfirm("");
+    setErrorMessage(null);
+  };
+
   return (
     <div
       style={{
@@ -146,7 +192,11 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
               color: "var(--text-primary)",
             }}
           >
-            {mode === "reenter" ? "パスフレーズを入力" : "クラウド同期を設定する"}
+            {mode === "reenter"
+              ? "パスフレーズを入力"
+              : mode === "request"
+                ? "同期アカウントを申請する"
+                : "クラウド同期を設定する"}
           </h2>
           <button
             onClick={onClose}
@@ -214,6 +264,98 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
               </button>
             </div>
           </div>
+        ) : mode === "request" ? (
+          /* --- 申請モード --- */
+          <div>
+            {requestSent ? (
+              <div>
+                <p
+                  style={{
+                    margin: "0 0 20px",
+                    fontSize: 14,
+                    color: "var(--text-secondary)",
+                    lineHeight: 1.7,
+                    background: "#f0fdf4",
+                    border: "1px solid #86efac",
+                    padding: "12px 14px",
+                    borderRadius: 8,
+                  }}
+                >
+                  申請を受け付けました。管理者の承認後にご利用いただけます。
+                </p>
+                <button onClick={goToLogin} style={secondaryBtnStyle}>
+                  ログインに戻る
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p
+                  style={{
+                    margin: "0 0 16px",
+                    fontSize: 13,
+                    color: "var(--text-secondary)",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  メールアドレスとパスフレーズを設定してください。パスフレーズはデータの暗号化に使用するため、忘れた場合は復元できません。
+                </p>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={labelStyle}>メールアドレス</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isLoading}
+                    placeholder="your@example.com"
+                    style={inputStyle}
+                  />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={labelStyle}>パスフレーズ</label>
+                  <PasswordInput
+                    value={passphrase}
+                    onChange={setPassphrase}
+                    show={showPass}
+                    onToggleShow={() => setShowPass((v) => !v)}
+                    disabled={isLoading}
+                  />
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <label style={labelStyle}>パスフレーズ（確認）</label>
+                  <PasswordInput
+                    value={passphraseConfirm}
+                    onChange={setPassphraseConfirm}
+                    show={showPassConfirm}
+                    onToggleShow={() => setShowPassConfirm((v) => !v)}
+                    disabled={isLoading}
+                    placeholder="もう一度入力してください"
+                  />
+                  {passphraseConfirm && passphrase !== passphraseConfirm && (
+                    <p style={{ margin: "6px 0 0", fontSize: 12, color: "#dc2626" }}>
+                      パスフレーズが一致しません
+                    </p>
+                  )}
+                </div>
+                {errorMessage && <ErrorBanner message={errorMessage} />}
+                <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+                  <button onClick={goToLogin} disabled={isLoading} style={secondaryBtnStyle}>
+                    戻る
+                  </button>
+                  <button
+                    onClick={handleRequest}
+                    disabled={
+                      isLoading || !email || !passphrase || passphrase !== passphraseConfirm
+                    }
+                    style={primaryBtnStyle(
+                      isLoading || !email || !passphrase || passphrase !== passphraseConfirm
+                    )}
+                  >
+                    {isLoading ? <LoadingContent label="送信中..." /> : "申請する"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           /* --- ログインモード（新規登録は招待制のため非表示） --- */
           <div>
@@ -233,17 +375,7 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
 
             {/* メール入力 */}
             <div style={{ marginBottom: 12 }}>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "var(--text-secondary)",
-                  marginBottom: 4,
-                }}
-              >
-                メールアドレス
-              </label>
+              <label style={labelStyle}>メールアドレス</label>
               <input
                 type="email"
                 value={email}
@@ -256,17 +388,7 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
 
             {/* パスフレーズ入力 */}
             <div style={{ marginBottom: 4 }}>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "var(--text-secondary)",
-                  marginBottom: 4,
-                }}
-              >
-                パスフレーズ
-              </label>
+              <label style={labelStyle}>パスフレーズ</label>
               <PasswordInput
                 value={passphrase}
                 onChange={setPassphrase}
@@ -290,6 +412,22 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
                 {isLoading ? <LoadingContent label="鍵を生成中..." /> : "ログイン"}
               </button>
             </div>
+
+            <div style={{ marginTop: 14, textAlign: "center" }}>
+              <button
+                onClick={() => setRequestMode(true)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#6366f1",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                }}
+              >
+                アカウントをお申し込みの方はこちら →
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -309,6 +447,14 @@ async function _deriveKeyDirectly(passphrase: string, saltBase64: string): Promi
 }
 
 // --- 共通スタイル・小コンポーネント ---
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 13,
+  fontWeight: 600,
+  color: "var(--text-secondary)",
+  marginBottom: 4,
+};
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -358,12 +504,14 @@ function PasswordInput({
   show,
   onToggleShow,
   disabled,
+  placeholder = "パスフレーズを入力",
 }: {
   value: string;
   onChange: (v: string) => void;
   show: boolean;
   onToggleShow: () => void;
   disabled?: boolean;
+  placeholder?: string;
 }) {
   return (
     <div style={{ position: "relative" }}>
@@ -372,7 +520,7 @@ function PasswordInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        placeholder="パスフレーズを入力"
+        placeholder={placeholder}
         style={{ ...inputStyle, paddingRight: 44 }}
       />
       <button

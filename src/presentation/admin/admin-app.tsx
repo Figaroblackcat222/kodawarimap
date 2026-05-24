@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { authService } from "@infrastructure/sync/auth-service";
 import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
 import { UserListTable } from "./user-list-table";
+import { RegistrationRequestsTable } from "./registration-requests-table";
 
 type AdminState = "checking" | "login" | "unauthorized" | "ready";
 
@@ -159,10 +160,18 @@ export function AdminApp() {
       </header>
 
       <main style={{ maxWidth: 960, margin: "0 auto", padding: "24px 16px" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginBottom: 24 }}>
-          ユーザー管理
-        </h1>
-        <UserListTable />
+        <section style={{ marginBottom: 40 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginBottom: 16 }}>
+            登録申請
+          </h1>
+          <RegistrationRequestsTable />
+        </section>
+        <section>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginBottom: 16 }}>
+            ユーザー管理
+          </h1>
+          <UserListTable />
+        </section>
       </main>
     </div>
   );

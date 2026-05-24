@@ -379,6 +379,69 @@ async function handleDeleteAccount(request: Request, env: Env): Promise<Response
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/auth/request-registration
+// ---------------------------------------------------------------------------
+
+async function handleRequestRegistration(request: Request, env: Env): Promise<Response> {
+  const origin = getOrigin(request);
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "Invalid JSON" }, 400, origin, env.CORS_ORIGIN);
+  }
+
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    typeof (body as Record<string, unknown>)["email"] !== "string" ||
+    typeof (body as Record<string, unknown>)["passwordHash"] !== "string" ||
+    typeof (body as Record<string, unknown>)["salt"] !== "string"
+  ) {
+    return jsonResponse(
+      { error: "email, passwordHash, salt are required" },
+      400,
+      origin,
+      env.CORS_ORIGIN
+    );
+  }
+
+  const { email, passwordHash, salt } = body as {
+    email: string;
+    passwordHash: string;
+    salt: string;
+  };
+
+  if (!email.includes("@") || email.length > 254) {
+    return jsonResponse({ error: "Invalid email address" }, 400, origin, env.CORS_ORIGIN);
+  }
+
+  const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?")
+    .bind(email.toLowerCase())
+    .first<{ id: string }>();
+  if (existing !== null) {
+    return jsonResponse({ error: "email_already_registered" }, 409, origin, env.CORS_ORIGIN);
+  }
+
+  const pending = await env.DB.prepare("SELECT id FROM registration_requests WHERE email = ?")
+    .bind(email.toLowerCase())
+    .first<{ id: string }>();
+  if (pending !== null) {
+    return jsonResponse({ error: "request_already_pending" }, 409, origin, env.CORS_ORIGIN);
+  }
+
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    `INSERT INTO registration_requests (id, email, password_hash, salt) VALUES (?, ?, ?, ?)`
+  )
+    .bind(id, email.toLowerCase(), passwordHash, salt)
+    .run();
+
+  return jsonResponse({ ok: true }, 200, origin, env.CORS_ORIGIN);
+}
+
+// ---------------------------------------------------------------------------
 // ルーター
 // ---------------------------------------------------------------------------
 
@@ -388,6 +451,9 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
 
   if (path === "/api/auth/register" && method === "POST") {
     return handleRegister(request, env);
+  }
+  if (path === "/api/auth/request-registration" && method === "POST") {
+    return handleRequestRegistration(request, env);
   }
   if (path === "/api/auth/login" && method === "POST") {
     return handleLogin(request, env);

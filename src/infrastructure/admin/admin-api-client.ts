@@ -27,6 +27,16 @@ async function adminFetch(path: string, init: RequestInit = {}): Promise<Respons
   return fetch(`${API_BASE}${path}`, { ...init, headers });
 }
 
+export interface RegistrationRequest {
+  id: string;
+  email: string;
+  requestedAt: string;
+}
+
+export interface ListRegistrationRequestsResult {
+  requests: RegistrationRequest[];
+}
+
 export const adminApiClient = {
   async listUsers(query = "", limit = 50, offset = 0): Promise<ListUsersResult> {
     const params = new URLSearchParams({
@@ -51,6 +61,31 @@ export const adminApiClient = {
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(data.error ?? `updateUserPlan failed: ${res.status}`);
+    }
+  },
+
+  async listRegistrationRequests(): Promise<ListRegistrationRequestsResult> {
+    const res = await adminFetch("/api/admin/registrations");
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error ?? `listRegistrationRequests failed: ${res.status}`);
+    }
+    return res.json() as Promise<ListRegistrationRequestsResult>;
+  },
+
+  async approveRegistration(id: string): Promise<void> {
+    const res = await adminFetch(`/api/admin/registrations/${id}/approve`, { method: "POST" });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error ?? `approveRegistration failed: ${res.status}`);
+    }
+  },
+
+  async rejectRegistration(id: string): Promise<void> {
+    const res = await adminFetch(`/api/admin/registrations/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error ?? `rejectRegistration failed: ${res.status}`);
     }
   },
 };

@@ -82,6 +82,18 @@ export const cloudflareSyncRepository: SyncRepository = {
     }
   },
 
+  async requestRegistration(email: string, passwordHash: string, salt: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/auth/request-registration`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, passwordHash, salt }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error ?? `Request failed: ${res.status}`);
+    }
+  },
+
   async login(
     email: string,
     passwordHash: string

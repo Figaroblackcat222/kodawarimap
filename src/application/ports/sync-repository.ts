@@ -24,6 +24,7 @@ export interface PhotoSyncRecord {
 export interface SyncRepository {
   // 認証
   register(email: string, passwordHash: string, salt: string): Promise<void>;
+  requestRegistration(email: string, passwordHash: string, salt: string): Promise<void>;
   login(
     email: string,
     passwordHash: string
