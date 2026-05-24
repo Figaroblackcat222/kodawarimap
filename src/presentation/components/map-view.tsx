@@ -487,7 +487,7 @@ export function MapView() {
 
   // 同期
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null);
-  const [isLoadingKey, setIsLoadingKey] = useState(true);
+  const [, setIsLoadingKey] = useState(true);
   const [showSyncSetup, setShowSyncSetup] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
 

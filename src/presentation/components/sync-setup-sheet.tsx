@@ -99,7 +99,6 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
       // ignore
     }
     authService.clearAll();
-    setTab("login");
     setEmail("");
     setPassphrase("");
     setErrorMessage(null);
