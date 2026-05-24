@@ -112,7 +112,7 @@ src/
         ├── settings-sheet.tsx      # 設定（地図・エクスポート・インポート・同期セクション（Proバッジ・ログアウト時onLogoutコールバックでkey_store削除）・バックアップ30日警告）
         ├── pwa-update-dialog.tsx   # PWA更新通知ダイアログ
         ├── message-ticker.tsx      # ガイドメッセージティッカー（常時サイクル・ピン選択中も同じメッセージを流し続ける）
-        └── geocoder-search.tsx     # Nominatim地名検索（top:48 right:52）
+        └── geocoder-search.tsx     # Nominatim地名検索（collapsed: top:48 right:96・expanded: top:48 left:50 right:96）
 ```
 
 ```
@@ -124,7 +124,7 @@ workers/                           # Cloudflare Workers バックエンド
 │   │   ├── jwt.ts                 # HS256 sign/verify・JwtPayloadにplan/role claim追加
 │   │   └── hlc.ts                 # サーバー側HLC計算
 │   ├── middleware/
-│   │   ├── cors.ts                # CORS（localhost常時許可・CORS_ORIGINで本番許可）
+│   │   ├── cors.ts                # CORS（localhost常時許可・CORS_ORIGINで本番許可・Allow-Methods: GET/POST/PUT/PATCH/DELETE/OPTIONS）
 │   │   └── auth.ts                # JWT検証（requireAuth → {userId, plan, role}・DBから毎回取得）・requirePro・requireAdmin
 │   └── routes/
 │       ├── auth.ts                # 認証API（register（REGISTRATION_OPEN制御）/login（plan/role返却）/refresh/logout/request-registration・ブルートフォース対策）

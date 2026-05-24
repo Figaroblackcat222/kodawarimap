@@ -77,8 +77,8 @@ src/
     │                    # settings-sheet（地図情報更新（POIキャッシュclr+SW更新チェック）・ソート順・地図検索ON/OFF（Nominatim・同意ダイアログ付き）・ガイドメッセージON/OFF＋折りたたみ解除ボタン・昼夜自動テーマ切り替えトグル＋時刻設定・同期セクション（Proバッジ付きヘッダー・同期状態表示・今すぐ同期・パスフレーズ再入力・ログアウト（IndexedDB key_store削除）・onLogoutコールバック経由でmap-viewのencryptionKeyをクリア）・バックアップセクション（最終エクスポート日時・30日未バックアップ時に警告バナー）），
     │                    # pwa-update-dialog（新SW待機時にダイアログ表示・「後で」は1時間スキップ・タブ再オープン（ページロード）時はスヌーズ無視で即表示・visibilitychange+タイマーで再表示（スヌーズ尊重）・useRegisterSW使用）,
     │                    # message-ticker（地図上部ガイドメッセージ・height:40px・font-size:14px・左端に固定ラベル表示（【はじめに】【ヒント】）・静止3秒→左スクロール（1回）→onScrollEndで次メッセージのサイクル・静止中は左12px マージン付き・×で左端に折りたたみ（▶ボタン）・localStorage: ticker-enabled/ticker-collapsed・ピン選択中も含めて常時サイクル（selectedPin 時の固定メッセージなし）），
-    │                    # geocoder-search（Nominatim地名検索・収縮/展開ボタン（top:48 right:52）・展開時 top:48 left:50 right:52（ズームコントロール・設定ボタン非重複）・debounce 400ms・flyTo・© OpenStreetMap contributors表示）,
-    │                    # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ・handleCreateCopyFromPin: ショッピングピンのリストをコピーして同座標に新ピン作成・再訪時にProvisionalPinDataへshoppingItems継承（チェックリセット）)
+    │                    # geocoder-search（Nominatim地名検索・収縮/展開ボタン（top:48 right:96）・展開時 top:48 left:50 right:96（ズームコントロール・リロード・設定ボタン非重複）・debounce 400ms・flyTo・© OpenStreetMap contributors表示）,
+    │                    # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ・handleCreateCopyFromPin: ショッピングピンのリストをコピーして同座標に新ピン作成・再訪時にProvisionalPinDataへshoppingItems継承（チェックリセット）・リロードボタン（top:48 right:52・RotateCw・window.location.reload()・PWAのスマホ登録時のリロード手段として追加））
 workers/
 ├── src/
 │   ├── index.ts         # ルーティング + scheduled（30日tombstone削除・refresh_token期限切れ削除）
@@ -87,7 +87,7 @@ workers/
 │   │   ├── jwt.ts       # HS256 sign/verify（crypto.subtle）・JwtPayloadにplan/role claim追加
 │   │   └── hlc.ts       # サーバー側HLC計算（computeServerHlc）
 │   ├── middleware/
-│   │   ├── cors.ts      # CORS（localhost常時許可・CORS_ORIGINと完全一致で本番許可）
+│   │   ├── cors.ts      # CORS（localhost常時許可・CORS_ORIGINと完全一致で本番許可・Access-Control-Allow-Methods: GET/POST/PUT/PATCH/DELETE/OPTIONS）
 │   │   └── auth.ts      # JWT検証ミドルウェア（requireAuth → {userId, plan, role}・DBから毎回plan/roleを取得）,
 │   │                    # requirePro(auth)（plan!=='pro'なら403 pro_required）,
 │   │                    # requireAdmin(auth)（role!=='admin'なら403 admin_required）
