@@ -46,6 +46,7 @@ function createMockPinRepository(pins: Pin[] = [], deletedPins: Pin[] = []): Pin
 function createMockSyncRepository(): SyncRepository {
   return {
     register: vi.fn().mockResolvedValue(undefined),
+    requestRegistration: vi.fn().mockResolvedValue(undefined),
     login: vi.fn().mockResolvedValue({ accessToken: "at", refreshToken: "rt", salt: "salt" }),
     refreshToken: vi.fn().mockResolvedValue({ accessToken: "at2", refreshToken: "rt2" }),
     logout: vi.fn().mockResolvedValue(undefined),
