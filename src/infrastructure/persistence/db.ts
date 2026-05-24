@@ -70,10 +70,17 @@ interface SyncQueueRecord {
   lastError?: string;
 }
 
+interface KeyStoreRecord {
+  id: string;
+  key: CryptoKey;
+  createdAt: Date;
+}
+
 class KodawarimapDB extends Dexie {
   pins!: EntityTable<PinRecord, "id">;
   photos!: EntityTable<PhotoRecord, "id">;
   sync_queue!: EntityTable<SyncQueueRecord, "id">;
+  key_store!: EntityTable<KeyStoreRecord, "id">;
 
   constructor() {
     super("kodawarimap");
@@ -152,8 +159,14 @@ class KodawarimapDB extends Dexie {
             }
           });
       });
+    this.version(13).stores({
+      pins: "id, createdAt, deletedAt, categoryId, hlcPhysical",
+      photos: "id, pinId, createdAt, hlcPhysical",
+      sync_queue: "id, recordId, nextAttemptAt",
+      key_store: "id",
+    });
   }
 }
 
 export const db = new KodawarimapDB();
-export type { PinRecord, PhotoRecord, SyncQueueRecord };
+export type { PinRecord, PhotoRecord, SyncQueueRecord, KeyStoreRecord };

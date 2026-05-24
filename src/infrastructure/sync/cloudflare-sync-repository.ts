@@ -85,7 +85,13 @@ export const cloudflareSyncRepository: SyncRepository = {
   async login(
     email: string,
     passwordHash: string
-  ): Promise<{ accessToken: string; refreshToken: string; salt: string }> {
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    salt: string;
+    plan: string;
+    role: string;
+  }> {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -95,7 +101,16 @@ export const cloudflareSyncRepository: SyncRepository = {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(data.error ?? `Login failed: ${res.status}`);
     }
-    return res.json() as Promise<{ accessToken: string; refreshToken: string; salt: string }>;
+    const data = (await res.json()) as {
+      accessToken: string;
+      refreshToken: string;
+      salt: string;
+      plan: string;
+      role: string;
+    };
+    authService.savePlan(data.plan ?? "free");
+    authService.saveRole(data.role ?? "user");
+    return data;
   },
 
   async refreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {

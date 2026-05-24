@@ -57,6 +57,12 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
       return;
     }
 
+    // Pro プランのみ同期を許可（クライアント側保険。サーバー側でも必ず検証する）
+    if (authService.getPlan() !== "pro") {
+      setSyncState("unauthenticated");
+      return;
+    }
+
     if (!navigator.onLine) {
       setSyncState("offline");
       return;

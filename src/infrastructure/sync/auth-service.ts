@@ -12,6 +12,8 @@ const STORAGE_KEY = {
   REFRESH_TOKEN: "kdm:refresh-token",
   USER_EMAIL: "kdm:user-email",
   SYNC_SALT: "kdm:sync-salt",
+  USER_PLAN: "kdm:user-plan",
+  USER_ROLE: "kdm:user-role",
 } as const;
 
 /** JWT ペイロードの型（最低限） */
@@ -67,10 +69,32 @@ export const authService = {
     localStorage.setItem(STORAGE_KEY.SYNC_SALT, salt);
   },
 
+  savePlan(plan: string): void {
+    localStorage.setItem(STORAGE_KEY.USER_PLAN, plan);
+  },
+
+  getPlan(): "free" | "pro" | null {
+    const v = localStorage.getItem(STORAGE_KEY.USER_PLAN);
+    if (v === "free" || v === "pro") return v;
+    return null;
+  },
+
+  saveRole(role: string): void {
+    localStorage.setItem(STORAGE_KEY.USER_ROLE, role);
+  },
+
+  getRole(): "user" | "admin" | null {
+    const v = localStorage.getItem(STORAGE_KEY.USER_ROLE);
+    if (v === "user" || v === "admin") return v;
+    return null;
+  },
+
   clearAll(): void {
     this.clearTokens();
     localStorage.removeItem(STORAGE_KEY.USER_EMAIL);
     localStorage.removeItem(STORAGE_KEY.SYNC_SALT);
+    localStorage.removeItem(STORAGE_KEY.USER_PLAN);
+    localStorage.removeItem(STORAGE_KEY.USER_ROLE);
   },
 
   // ---------------------------------------------------------------------------
@@ -159,8 +183,15 @@ export const authService = {
         return null;
       }
 
-      const data = (await res.json()) as { accessToken: string; refreshToken: string };
+      const data = (await res.json()) as {
+        accessToken: string;
+        refreshToken: string;
+        plan?: string;
+        role?: string;
+      };
       this.saveTokens(data.accessToken, data.refreshToken);
+      if (data.plan) this.savePlan(data.plan);
+      if (data.role) this.saveRole(data.role);
       return data.accessToken;
     } catch {
       // ネットワークエラー: トークンは保持したまま null を返す

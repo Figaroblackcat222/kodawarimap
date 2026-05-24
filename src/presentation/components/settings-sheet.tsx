@@ -58,6 +58,8 @@ interface Props {
   lastSyncAt?: Date | null;
   /** ログイン済みかつ鍵あり */
   hasSyncKey?: boolean;
+  /** ログアウト完了時に呼ばれる */
+  onLogout?: () => void;
 }
 
 const RETENTION_OPTIONS = [7, 14, 30, 60, 90] as const;
@@ -84,6 +86,7 @@ export function SettingsSheet({
   onOpenSyncSetup,
   lastSyncAt,
   hasSyncKey = false,
+  onLogout,
 }: Props) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -125,6 +128,7 @@ export function SettingsSheet({
       // ignore
     }
     authService.clearAll();
+    onLogout?.();
     setInfoDialog({ type: "success", message: "ログアウトしました" });
   };
 
@@ -489,7 +493,36 @@ export function SettingsSheet({
           <div style={{ marginTop: 20 }} />
 
           {/* クラウド同期セクション */}
-          <SectionTitle label="クラウド同期" />
+          <p
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              marginBottom: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            クラウド同期
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                background: "#6366f1",
+                color: "#fff",
+                padding: "1px 6px",
+                borderRadius: 4,
+                letterSpacing: 0.5,
+                textTransform: "none",
+              }}
+            >
+              Pro
+            </span>
+            {/* 将来の「アップグレード」導線はここに追加 */}
+          </p>
 
           {/* バックアップリマインダー */}
           {showBackupReminder && !backupReminderDismissed && (

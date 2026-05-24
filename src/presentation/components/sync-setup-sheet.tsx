@@ -1,9 +1,10 @@
 /**
  * クラウド同期セットアップシート
  *
- * - 新規登録: メール + パスフレーズ → register → salt 生成 → 鍵導出
- * - 既存ログイン: メール + パスフレーズ → login → salt 取得 → 鍵導出
+ * - ログイン: メール + パスフレーズ → login → salt 取得 → 鍵導出
  * - リロード後鍵再入力: パスフレーズのみ → 既存 salt で鍵導出
+ *
+ * 新規登録は現在招待制のため UI を非表示とする。
  */
 import { useState } from "react";
 import { X, Eye, EyeOff, Loader2 } from "lucide-react";
@@ -34,11 +35,9 @@ interface SyncSetupSheetProps {
   onSuccess: (key: CryptoKey) => void;
 }
 
-type TabType = "register" | "login";
 type ModeType = "auth" | "reenter";
 
 export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetProps) {
-  const [tab, setTab] = useState<TabType>("register");
   const [email, setEmail] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -52,35 +51,6 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
   const mode: ModeType = authService.isLoggedIn() ? "reenter" : "auth";
 
   const isLoading = isSubmitting;
-
-  const handleRegister = async () => {
-    setErrorMessage(null);
-    setIsSubmitting(true);
-    try {
-      // 新規 salt を生成して base64 にエンコード
-      const saltBytes = webCryptoService.generateSalt();
-      const saltBase64 = arrayBufferToBase64(saltBytes.buffer);
-      authService.saveSalt(saltBase64);
-
-      const passwordHash = await hashPassphrase(passphrase);
-      await cloudflareSyncRepository.register(email, passwordHash, saltBase64);
-
-      // 登録後にログインしてトークンを取得
-      const { accessToken, refreshToken } = await cloudflareSyncRepository.login(
-        email,
-        passwordHash
-      );
-      authService.saveTokens(accessToken, refreshToken);
-      authService.saveEmail(email);
-
-      const key = await _deriveKeyDirectly(passphrase, saltBase64);
-      onSuccess(key);
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "登録に失敗しました");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const handleLogin = async () => {
     setErrorMessage(null);
@@ -246,54 +216,21 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
             </div>
           </div>
         ) : (
-          /* --- 新規登録 / ログインモード --- */
+          /* --- ログインモード（新規登録は招待制のため非表示） --- */
           <div>
-            {/* タブ切り替え */}
-            <div
+            <p
               style={{
-                display: "flex",
-                borderBottom: "1px solid var(--border-light)",
-                marginBottom: 20,
+                margin: "0 0 16px",
+                fontSize: 13,
+                color: "var(--text-secondary)",
+                lineHeight: 1.6,
+                background: "var(--bg-secondary, #f5f5f5)",
+                padding: "10px 12px",
+                borderRadius: 8,
               }}
             >
-              {(["register", "login"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => {
-                    setTab(t);
-                    setErrorMessage(null);
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: "10px 0",
-                    background: "none",
-                    border: "none",
-                    borderBottom: tab === t ? "2px solid #6366f1" : "2px solid transparent",
-                    color: tab === t ? "#6366f1" : "var(--text-muted)",
-                    fontSize: 14,
-                    fontWeight: tab === t ? 700 : 400,
-                    cursor: "pointer",
-                    transition: "color 0.15s",
-                  }}
-                >
-                  {t === "register" ? "新規登録" : "ログイン"}
-                </button>
-              ))}
-            </div>
-
-            {tab === "register" && (
-              <p
-                style={{
-                  margin: "0 0 16px",
-                  fontSize: 13,
-                  color: "var(--text-secondary)",
-                  lineHeight: 1.6,
-                }}
-              >
-                スマホとPCでピン・写真を同期できます。
-                パスフレーズを忘れると新しいデバイスへの同期ができなくなります（このデバイスのデータは消えません）。
-              </p>
-            )}
+              クラウド同期は現在招待制です。アカウントをお持ちの方はログインしてください。
+            </p>
 
             {/* メール入力 */}
             <div style={{ marginBottom: 12 }}>
@@ -347,17 +284,11 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
                 キャンセル
               </button>
               <button
-                onClick={tab === "register" ? handleRegister : handleLogin}
+                onClick={handleLogin}
                 disabled={isLoading || !email || !passphrase}
                 style={primaryBtnStyle(isLoading || !email || !passphrase)}
               >
-                {isLoading ? (
-                  <LoadingContent label="鍵を生成中..." />
-                ) : tab === "register" ? (
-                  "新規登録"
-                ) : (
-                  "ログイン"
-                )}
+                {isLoading ? <LoadingContent label="鍵を生成中..." /> : "ログイン"}
               </button>
             </div>
           </div>

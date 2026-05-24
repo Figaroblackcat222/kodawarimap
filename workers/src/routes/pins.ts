@@ -7,7 +7,7 @@
  *   DELETE /api/pins/:id
  */
 import type { Env } from "../types";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requirePro } from "../middleware/auth";
 import { jsonResponse, emptyResponse } from "../middleware/cors";
 import { computeServerHlc } from "../lib/hlc";
 
@@ -52,6 +52,8 @@ async function handleGetPinsSince(request: Request, env: Env): Promise<Response>
       headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
     });
   }
+  const proError = requirePro(authResult);
+  if (proError) return proError;
   const { userId } = authResult;
 
   const url = new URL(request.url);
@@ -110,6 +112,8 @@ async function handlePutPin(request: Request, env: Env, pinId: string): Promise<
       headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
     });
   }
+  const proError = requirePro(authResult);
+  if (proError) return proError;
   const { userId } = authResult;
 
   let body: unknown;
@@ -202,6 +206,8 @@ async function handleDeletePin(request: Request, env: Env, pinId: string): Promi
       headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
     });
   }
+  const proError = requirePro(authResult);
+  if (proError) return proError;
   const { userId } = authResult;
 
   // 既存レコード確認

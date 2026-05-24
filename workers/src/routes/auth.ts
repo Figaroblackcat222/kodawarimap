@@ -47,6 +47,11 @@ async function hashIp(ip: string): Promise<string> {
 async function handleRegister(request: Request, env: Env): Promise<Response> {
   const origin = getOrigin(request);
 
+  // 登録受付フラグが 'true' でなければ新規登録を拒否
+  if (env.REGISTRATION_OPEN !== "true") {
+    return jsonResponse({ error: "registration_closed" }, 403, origin, env.CORS_ORIGIN);
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -154,9 +159,11 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   }
 
   // ユーザー取得
-  const user = await env.DB.prepare("SELECT id, password_hash, salt FROM users WHERE email = ?")
+  const user = await env.DB.prepare(
+    "SELECT id, password_hash, salt, plan, role FROM users WHERE email = ?"
+  )
     .bind(email.toLowerCase())
-    .first<{ id: string; password_hash: string; salt: string }>();
+    .first<{ id: string; password_hash: string; salt: string; plan: string; role: string }>();
 
   // 定数時間での比較（タイミング攻撃対策）
   // ユーザーが存在しない場合もダミーハッシュと比較して時間を揃える
@@ -177,8 +184,14 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Invalid email or password" }, 401, origin, env.CORS_ORIGIN);
   }
 
-  // トークン発行
-  const accessToken = await signJwt({ sub: user!.id }, env.JWT_SECRET, ACCESS_TOKEN_TTL);
+  // トークン発行（plan / role を JWT に含める）
+  const plan = user!.plan ?? "free";
+  const role = user!.role ?? "user";
+  const accessToken = await signJwt(
+    { sub: user!.id, plan, role },
+    env.JWT_SECRET,
+    ACCESS_TOKEN_TTL
+  );
   const refreshToken = crypto.randomUUID();
   const refreshExpiry = new Date(
     Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
@@ -193,7 +206,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     .run();
 
   return jsonResponse(
-    { accessToken, refreshToken, salt: user!.salt },
+    { accessToken, refreshToken, salt: user!.salt, plan, role },
     200,
     origin,
     env.CORS_ORIGIN
@@ -250,8 +263,18 @@ async function handleRefresh(request: Request, env: Env): Promise<Response> {
     .bind(refreshToken)
     .run();
 
-  // 新しいトークンを発行
-  const newAccessToken = await signJwt({ sub: record.user_id }, env.JWT_SECRET, ACCESS_TOKEN_TTL);
+  // 最新の plan / role を取得して新しいトークンを発行
+  const userRecord = await env.DB.prepare("SELECT plan, role FROM users WHERE id = ?")
+    .bind(record.user_id)
+    .first<{ plan: string; role: string }>();
+
+  const plan = userRecord?.plan ?? "free";
+  const role = userRecord?.role ?? "user";
+  const newAccessToken = await signJwt(
+    { sub: record.user_id, plan, role },
+    env.JWT_SECRET,
+    ACCESS_TOKEN_TTL
+  );
   const newRefreshToken = crypto.randomUUID();
   const newExpiry = new Date(
     Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
@@ -265,7 +288,7 @@ async function handleRefresh(request: Request, env: Env): Promise<Response> {
     .run();
 
   return jsonResponse(
-    { accessToken: newAccessToken, refreshToken: newRefreshToken },
+    { accessToken: newAccessToken, refreshToken: newRefreshToken, plan, role },
     200,
     origin,
     env.CORS_ORIGIN

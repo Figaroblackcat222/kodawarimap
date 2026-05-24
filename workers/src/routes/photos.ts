@@ -8,7 +8,7 @@
  *   DELETE /api/photos/:id
  */
 import type { Env } from "../types";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requirePro } from "../middleware/auth";
 import { jsonResponse, emptyResponse, corsHeaders } from "../middleware/cors";
 
 interface D1PhotoRow {
@@ -56,6 +56,8 @@ async function handleGetPhotoList(request: Request, env: Env, pinId: string): Pr
       headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
     });
   }
+  const proError = requirePro(authResult);
+  if (proError) return proError;
   const { userId } = authResult;
 
   const rows = await env.DB.prepare(
@@ -92,6 +94,8 @@ async function handlePutPhoto(request: Request, env: Env, photoId: string): Prom
       headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
     });
   }
+  const proError = requirePro(authResult);
+  if (proError) return proError;
   const { userId } = authResult;
 
   let formData: FormData;
@@ -205,6 +209,8 @@ async function handleGetPhoto(request: Request, env: Env, photoId: string): Prom
       headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
     });
   }
+  const proError = requirePro(authResult);
+  if (proError) return proError;
   const { userId } = authResult;
 
   // D1 でレコード存在確認（userId の検証）
@@ -251,6 +257,8 @@ async function handleDeletePhoto(request: Request, env: Env, photoId: string): P
       headers: { "Content-Type": "application/json", ...corsHeadersFrom(authResult) },
     });
   }
+  const proError = requirePro(authResult);
+  if (proError) return proError;
   const { userId } = authResult;
 
   // D1 の is_deleted を 1 に更新

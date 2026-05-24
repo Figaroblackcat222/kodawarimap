@@ -35,6 +35,7 @@ import { SyncStatusIndicator } from "./sync-status-indicator";
 import { authService } from "@infrastructure/sync/auth-service";
 import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
 import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
+import { db } from "@infrastructure/persistence/db";
 
 const repo = dexiePinRepository;
 
@@ -486,6 +487,7 @@ export function MapView() {
 
   // 同期
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null);
+  const [isLoadingKey, setIsLoadingKey] = useState(true);
   const [showSyncSetup, setShowSyncSetup] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
 
@@ -515,11 +517,22 @@ export function MapView() {
     return () => clearInterval(id);
   }, [encryptionKey, triggerSync]);
 
-  // 起動時チェック: ログイン済み && 鍵なし → セットアップシートを開く
+  // 起動時チェック: IndexedDB から鍵を復元、なければセットアップシートを開く
   useEffect(() => {
-    if (authService.isLoggedIn() && !encryptionKey) {
-      setShowSyncSetup(true);
-    }
+    (async () => {
+      try {
+        if (authService.isLoggedIn()) {
+          const record = await db.key_store.get("encryption-key");
+          if (record) {
+            setEncryptionKey(record.key);
+          } else {
+            setShowSyncSetup(true);
+          }
+        }
+      } finally {
+        setIsLoadingKey(false);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1493,12 +1506,17 @@ export function MapView() {
           }}
           lastSyncAt={lastSyncAt}
           hasSyncKey={!!encryptionKey}
+          onLogout={async () => {
+            await db.key_store.delete("encryption-key");
+            setEncryptionKey(null);
+          }}
         />
       )}
       <SyncSetupSheet
         isOpen={showSyncSetup}
         onClose={() => setShowSyncSetup(false)}
-        onSuccess={(key) => {
+        onSuccess={async (key) => {
+          await db.key_store.put({ id: "encryption-key", key, createdAt: new Date() });
           setEncryptionKey(key);
           setShowSyncSetup(false);
         }}
