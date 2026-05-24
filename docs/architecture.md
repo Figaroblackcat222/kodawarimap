@@ -7,7 +7,7 @@
 | 言語           | TypeScript                          | 全レイヤー                                                                                    |
 | フロントエンド | React + Vite（SPA / PWA）           | SSR不要のローカルファースト                                                                   |
 | 地図エンジン   | MapLibre GL JS v5                   | ベクタータイル＋動的スタイル切替                                                              |
-| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv12）                                                                   |
+| ローカルDB     | IndexedDB + Dexie.js v4             | 端末内永続化（スキーマv13）                                                                   |
 | オフライン     | Service Worker（vite-plugin-pwa）   | タイルキャッシュ／エリア保存                                                                  |
 | バックエンド   | Cloudflare Workers + D1 + R2        | E2E暗号化マルチデバイス同期（詳細は [ADR-008](architecture-decisions/ADR-008-cloud-sync.md)） |
 | ベクタータイル | Protomaps PMTiles（自己ホスト）     | Cloudflare R2配信・`pmtiles` + `@protomaps/basemaps`で描画                                    |
@@ -61,16 +61,18 @@ src/
 │       └── pull-photo-sync.ts     # 全ピン分のR2写真を一括ダウンロード（sync時に自動実行）
 ├── infrastructure/                # port の実装（adapter）
 │   ├── persistence/
-│   │   ├── db.ts                  # KodawarimapDB（Dexie v4, v12スキーマ: pins/photosにhlc追加・sync_queue新規）
+│   │   ├── db.ts                  # KodawarimapDB（Dexie v4, v13スキーマ: v12にkey_storeテーブル追加（CryptoKey永続化）。sync_queue・pins/photosのhlcはv12新規）
 │   │   ├── dexie-pin-repository.ts   # PinRepository実装（findModifiedSince追加）
 │   │   ├── dexie-photo-repository.ts # PhotoRepository実装（findModifiedSince・markSynced・findUnsyncedPhotos追加）
 │   │   └── dexie-sync-queue-repository.ts # SyncQueueRepository実装（coalesceで重複排除）
 │   ├── sync/
 │   │   ├── web-crypto-service.ts  # CryptoService実装（PBKDF2 600K + AES-256-GCM。バイナリは先頭12bytesがIV）
-│   │   ├── auth-service.ts        # JWT管理・自動リフレッシュ・並行リフレッシュは同一Promise共有
-│   │   ├── cloudflare-sync-repository.ts # Workers API実装（401時自動リフレッシュ・写真はmultipart）
+│   │   ├── auth-service.ts        # JWT管理・自動リフレッシュ・並行リフレッシュは同一Promise共有。plan/role をlocalStorageに保存（kdm:user-plan/kdm:user-role）
+│   │   ├── cloudflare-sync-repository.ts # Workers API実装（401時自動リフレッシュ・写真はmultipart・requestRegistration追加）
 │   │   ├── tab-coordinator.ts     # Web Locks APIリーダー選出・BroadcastChannel完了通知
 │   │   └── node-id.ts             # localStorage: kdm:node-id でデバイスID管理
+│   ├── admin/
+│   │   └── admin-api-client.ts    # 管理画面API（listUsers/updateUserPlan/listRegistrationRequests/approveRegistration/rejectRegistration）
 │   ├── exif/
 │   │   └── exif-parser.ts         # exifr を使ったExif解析
 │   ├── image/
@@ -87,13 +89,17 @@ src/
 │   └── cache/                     # TileCacheAdapter（未実装）
 └── presentation/                  # React コンポーネント / hooks
     ├── hooks/
-    │   ├── use-sync.ts            # pull+push+pullPhotoSyncをtabCoordinator経由で実行・syncState管理・sync完了後refreshLists通知
+    │   ├── use-sync.ts            # pull+push+pullPhotoSyncをtabCoordinator経由で実行・syncState管理・sync完了後refreshLists通知。getPlan()!=='pro'なら同期スキップ（クライアント保険）
     │   └── use-key-derivation.ts  # パスフレーズ→CryptoKey導出（salt: localStorage kdm:sync-salt）
+    ├── admin/
+    │   ├── admin-app.tsx          # /admin ルート（ログイン→role='admin'確認→RegistrationRequestsTable＋UserListTable）
+    │   ├── user-list-table.tsx    # ユーザー一覧（email/plan/role/登録日・昇格/赤降格ボタン・降格は確認ダイアログ・検索・ページング）
+    │   └── registration-requests-table.tsx # 登録申請一覧（email/申請日時・承認→ユーザー作成/拒否→申請削除）
     └── components/
-        ├── map-view.tsx            # メインビュー（useSync統合・encryptionKey state・起動時SyncSetupSheet自動表示・sync完了後refreshLists()でUI再描画・設定ボタン top:48 right:8）
+        ├── map-view.tsx            # メインビュー（起動時IndexedDB key_storeからCryptoKey読込→あればSyncSetupSheet非表示・ログアウト時key_store削除・useSync統合・設定ボタン top:48 right:8）
         │                           # 同期タイミング: 起動時1回・オンライン復帰時・保存/削除/復元後3秒デバウンス・30分定期ポーリング
         │                           # 現在地マーカー: locationMarkerRef 管理・青点(18px)＋2秒パルスアニメーション
-        ├── sync-setup-sheet.tsx    # 同期セットアップ（新規登録/ログイン/パスフレーズ再入力3モード・パスフレーズ紛失警告文）
+        ├── sync-setup-sheet.tsx    # 同期セットアップ（auth/申請(request)/reenterの3モード。authモード: ログイン専用＋「申請する」リンク。requestモード: メール+パスフレーズ確認+salt生成→requestRegistration。reenterモード: パスフレーズのみ）
         ├── sync-status-indicator.tsx # 同期状態表示（top:92 right:8・設定ボタン下）
         │                           # idle=緑チェック（タップで即時同期）/syncing=スピナー/error=橙三角（タップ再試行）/offline=灰WifiOff
         │                           # idle/error のみクリック可・unauthenticated は非表示
@@ -103,7 +109,7 @@ src/
         ├── pin-detail-sheet.tsx    # ピン詳細・編集・lightbox（syncRepository/encryptionKey props経由で遅延写真ロード）
         ├── cluster-sheet.tsx       # 同座標ピン一覧シート
         ├── current-location-button.tsx # 現在地flyToボタン（top:160 left:8）・取得後に flyTo＋青点マーカーを地図上に表示
-        ├── settings-sheet.tsx      # 設定（地図・エクスポート・インポート・同期セクション・バックアップ30日警告）
+        ├── settings-sheet.tsx      # 設定（地図・エクスポート・インポート・同期セクション（Proバッジ・ログアウト時onLogoutコールバックでkey_store削除）・バックアップ30日警告）
         ├── pwa-update-dialog.tsx   # PWA更新通知ダイアログ
         ├── message-ticker.tsx      # ガイドメッセージティッカー（常時サイクル・ピン選択中も同じメッセージを流し続ける）
         └── geocoder-search.tsx     # Nominatim地名検索（top:48 right:52）
@@ -113,20 +119,23 @@ src/
 workers/                           # Cloudflare Workers バックエンド
 ├── src/
 │   ├── index.ts                   # ルーティング + scheduled（tombstone・token期限切れ削除）
-│   ├── types.ts                   # Env型（DB/PHOTOS/JWT_SECRET/CORS_ORIGIN）
+│   ├── types.ts                   # Env型（DB/PHOTOS/JWT_SECRET/CORS_ORIGIN/REGISTRATION_OPEN）
 │   ├── lib/
-│   │   ├── jwt.ts                 # HS256 sign/verify
+│   │   ├── jwt.ts                 # HS256 sign/verify・JwtPayloadにplan/role claim追加
 │   │   └── hlc.ts                 # サーバー側HLC計算
 │   ├── middleware/
 │   │   ├── cors.ts                # CORS（localhost常時許可・CORS_ORIGINで本番許可）
-│   │   └── auth.ts                # JWT検証ミドルウェア
+│   │   └── auth.ts                # JWT検証（requireAuth → {userId, plan, role}・DBから毎回取得）・requirePro・requireAdmin
 │   └── routes/
-│       ├── auth.ts                # 認証API（register/login/refresh/logout・ブルートフォース対策）
-│       ├── pins.ts                # ピン同期API（since取得・UPSERT・tombstone）
-│       └── photos.ts              # 写真API（list・R2アップロード/取得/削除）
+│       ├── auth.ts                # 認証API（register（REGISTRATION_OPEN制御）/login（plan/role返却）/refresh/logout/request-registration・ブルートフォース対策）
+│       ├── pins.ts                # ピン同期API（since取得・UPSERT・tombstone）全エンドポイントrequirePro
+│       ├── photos.ts              # 写真API（list・R2アップロード/取得/削除）全エンドポイントrequirePro
+│       └── admin.ts               # 管理API（全エンドポイントrequireAdmin）: GET/PATCH /api/admin/users・GET /api/admin/registrations・POST approve・DELETE reject
 ├── migrations/
-│   └── 0001_initial.sql           # D1スキーマ（users・pins_sync・photos_sync・refresh_tokens・login_attempts）
-└── wrangler.toml                  # DB: kodawarimap-sync・R2: kodawarimap-photos・cron: 0 3 * * *
+│   ├── 0001_initial.sql           # D1スキーマ（users・pins_sync・photos_sync・refresh_tokens・login_attempts）
+│   ├── 0002_add_plan_and_role.sql # usersにplan(DEFAULT 'pro')・role(DEFAULT 'user')追加（既存ユーザーgrandfather）
+│   └── 0003_registration_requests.sql # registration_requests（id/email/password_hash/salt/requested_at）
+└── wrangler.toml                  # DB: kodawarimap-sync・R2: kodawarimap-photos・cron: 0 3 * * *・REGISTRATION_OPEN='false'
 scripts/
 ├── build-poi-tiles-local.mjs  # ローカルOSM PBFからPOI z8タイルを一括生成
 └── fetch-poi-tiles.mjs        # Overpass APIからz8タイル単位でPOI取得
@@ -207,7 +216,7 @@ interface Photo {
 }
 ```
 
-### IndexedDB スキーマ（v12）
+### IndexedDB スキーマ（v13）
 
 **pins テーブル**  
 インデックス: `id, createdAt, deletedAt, categoryId, hlcPhysical`  
@@ -221,6 +230,11 @@ interface Photo {
 インデックス: `id, recordId, nextAttemptAt`  
 フィールド: `type('pin'|'photo'), recordId, operation('put'|'delete'), retries, nextAttemptAt, createdAt, lastError`  
 同一 recordId は coalesce（最新操作のみ保持）。指数バックオフ（最大5回・失敗後は error 状態へ）。
+
+**key_store テーブル**（v13新規）  
+インデックス: `id`  
+フィールド: `id('encryption-key'), key(CryptoKey), createdAt`  
+ログイン後の AES-256-GCM CryptoKey を永続化し、リロード後のパスフレーズ再入力を不要にする。ログアウト時に削除。
 
 ### カテゴリープリセット
 
