@@ -43,7 +43,15 @@ export interface SyncRepository {
   pushPin(record: PinSyncRecord): Promise<{ serverHlcPhysical: number; serverHlcLogical: number }>;
 
   // 写真同期
-  fetchPhotoList(pinId: string): Promise<{ id: string; hlcPhysical: number; hlcLogical: number }[]>;
+  fetchPhotoList(pinId: string): Promise<
+    {
+      id: string;
+      hlcPhysical: number;
+      hlcLogical: number;
+      encryptedMeta: string;
+      metaIv: string;
+    }[]
+  >;
   /**
    * 暗号化済み写真バイナリとメタデータを multipart/form-data で一括 PUT する。
    * pushPhotoMeta は廃止し、このメソッドに統合。

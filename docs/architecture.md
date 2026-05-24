@@ -44,7 +44,7 @@ src/
 ├── application/                   # Use Cases + ports（interface）
 │   ├── ports/
 │   │   ├── pin-repository.ts      # PinRepository（findModifiedSince追加）
-│   │   ├── photo-repository.ts    # PhotoRepository（findModifiedSince・markSynced・findUnsyncedPhotos追加）
+│   │   ├── photo-repository.ts    # PhotoRepository（findModifiedSince・markSynced・findUnsyncedPhotos・updateExif追加）
 │   │   ├── crypto-service.ts      # CryptoService（deriveKey/encrypt/decrypt/encryptBinary/decryptBinary/generateSalt）
 │   │   ├── sync-repository.ts     # SyncRepository（認証・fetchPinsSince・pushPin・fetchPhotoList・pushPhotoBinary・fetchPhotoBinary）
 │   │   └── sync-queue-repository.ts # SyncQueueRepository（enqueue/peekDue/markRetry/remove/coalesce）
@@ -63,7 +63,7 @@ src/
 │   ├── persistence/
 │   │   ├── db.ts                  # KodawarimapDB（Dexie v4, v13スキーマ: v12にkey_storeテーブル追加（CryptoKey永続化）。sync_queue・pins/photosのhlcはv12新規）
 │   │   ├── dexie-pin-repository.ts   # PinRepository実装（findModifiedSince追加）
-│   │   ├── dexie-photo-repository.ts # PhotoRepository実装（findModifiedSince・markSynced・findUnsyncedPhotos追加）
+│   │   ├── dexie-photo-repository.ts # PhotoRepository実装（findModifiedSince・markSynced・findUnsyncedPhotos・updateExif追加）
 │   │   └── dexie-sync-queue-repository.ts # SyncQueueRepository実装（coalesceで重複排除）
 │   ├── sync/
 │   │   ├── web-crypto-service.ts  # CryptoService実装（PBKDF2 600K + AES-256-GCM。バイナリは先頭12bytesがIV）
@@ -106,7 +106,7 @@ src/
         ├── photo-upload-button.tsx # 写真追加ボタン（左下・bottom: sheetHeight+8・テキスト常時表示）
         ├── category-selector.tsx   # カテゴリー選択ピル（タップで2列グリッド展開）
         ├── pin-list-sheet.tsx      # ボトムシート（11段階スナップ・フィルター・ソート・ショッピングバッジ）
-        ├── pin-detail-sheet.tsx    # ピン詳細・編集・lightbox（syncRepository/encryptionKey props経由で遅延写真ロード。復元時に復号blobからEXIF再抽出して保存）
+        ├── pin-detail-sheet.tsx    # ピン詳細・編集・lightbox（syncRepository/encryptionKey props経由で遅延写真ロード。復元時に復号blobからEXIF再抽出して保存。初回ロード時にexif未保存の既存写真もblobから再抽出しupdateExif()でDB永続化）
         ├── cluster-sheet.tsx       # 同座標ピン一覧シート
         ├── current-location-button.tsx # 現在地flyToボタン（top:160 left:8）・取得後に flyTo＋青点マーカーを地図上に表示
         ├── settings-sheet.tsx      # 設定（地図・エクスポート・インポート・同期セクション（Proバッジ・ログアウト時onLogoutコールバックでkey_store削除）・バックアップ30日警告）

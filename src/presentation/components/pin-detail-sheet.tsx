@@ -102,6 +102,7 @@ export function PinDetailSheet({
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Map<string, string>>(new Map());
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [lightboxItemPhotoId, setLightboxItemPhotoId] = useState<string | null>(null);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [pendingAddIds, setPendingAddIds] = useState<string[]>([]);
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
@@ -985,6 +986,10 @@ export function PinDetailSheet({
                             <img
                               src={itemPhotoUrl}
                               style={{ width: 32, height: 32, objectFit: "cover" }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (itemPhoto) setLightboxItemPhotoId(itemPhoto.id);
+                              }}
                             />
                           ) : (
                             <Camera size={14} color="var(--text-secondary)" />
@@ -1736,6 +1741,57 @@ export function PinDetailSheet({
                   )}
                 </div>
               )}
+            </div>,
+            document.body
+          );
+        })()}
+      {lightboxItemPhotoId !== null &&
+        (() => {
+          const lbUrl = photoUrls.get(lightboxItemPhotoId);
+          return createPortal(
+            <div
+              onClick={() => setLightboxItemPhotoId(null)}
+              onKeyDown={(e) => e.key === "Escape" && setLightboxItemPhotoId(null)}
+              role="dialog"
+              tabIndex={-1}
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 9999,
+                background: "rgba(0,0,0,0.92)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {lbUrl && (
+                <img
+                  src={lbUrl}
+                  alt=""
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ maxWidth: "100%", maxHeight: "90%", objectFit: "contain" }}
+                />
+              )}
+              <button
+                onClick={() => setLightboxItemPhotoId(null)}
+                style={{
+                  position: "absolute",
+                  top: 16,
+                  right: 16,
+                  background: "rgba(0,0,0,0.5)",
+                  border: "none",
+                  borderRadius: "50%",
+                  width: 40,
+                  height: 40,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  color: "#fff",
+                }}
+              >
+                <X size={20} />
+              </button>
             </div>,
             document.body
           );

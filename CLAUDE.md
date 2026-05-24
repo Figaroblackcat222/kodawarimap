@@ -27,7 +27,7 @@ src/
 │   │                    # Photo（+ comment + shoppingItemId + hlc + syncedAt）, sync-state.ts（SyncStatus型）
 │   └── value-objects/   # ExifData, hlc.ts（HLC型・createHlc/nextHlc/mergeHlc/compareHlc）
 ├── application/
-│   ├── ports/           # PinRepository（findModifiedSince追加）, PhotoRepository（findModifiedSince・markSynced・findUnsyncedPhotos追加）,
+│   ├── ports/           # PinRepository（findModifiedSince追加）, PhotoRepository（findModifiedSince・markSynced・findUnsyncedPhotos・updateExif追加）,
 │   │                    # CryptoService（deriveKey/encrypt/decrypt/encryptBinary/decryptBinary/generateSalt）,
 │   │                    # SyncRepository（認証・fetchPinsSince・pushPin・fetchPhotoList・pushPhotoBinary・fetchPhotoBinary・deletePhoto）,
 │   │                    # SyncQueueRepository（enqueue/peekDue/markRetry/remove/coalesce）
@@ -39,7 +39,7 @@ src/
 ├── infrastructure/
 │   ├── persistence/     # db.ts（Dexie v4, schema v13: v12にkey_storeテーブル追加（CryptoKey永続化）。hlcPhysical/hlcLogical/hlcNodeId/syncSchemaVersionをpins・photosに追加、sync_queueテーブルはv12新規）,
 │   │                    # dexie-pin-repository.ts（findModifiedSince実装・shoppingItemsをJSONシリアライズ）,
-│   │                    # dexie-photo-repository.ts（findModifiedSince・markSynced・findUnsyncedPhotos実装・restore・saveForShoppingItem）,
+│   │                    # dexie-photo-repository.ts（findModifiedSince・markSynced・findUnsyncedPhotos・updateExif実装・restore・saveForShoppingItem）,
 │   │                    # dexie-sync-queue-repository.ts（SyncQueueRepository実装・coalesceによる重複排除）
 │   ├── sync/            # web-crypto-service.ts（PBKDF2 600K + AES-256-GCM。encryptBinary/decryptBinaryは先頭12bytesがIV）,
 │   │                    # auth-service.ts（JWT管理・自動リフレッシュ・並行リフレッシュは同一Promise共有。plan/role をlocalStorage保存（kdm:user-plan/kdm:user-role）。API_BASE=https://kodawarimap-api.figaroblackcat.workers.dev）,
@@ -72,7 +72,7 @@ src/
     │                    # photo-upload-button（左下配置・bottom: sheetHeight+8でボトムシートに追従・スマホ・PCともにテキスト常時表示・padding:8px 12px・fontSize:13）,
     │                    # category-selector（タップで2列グリッド展開・選択後に縮小・スマホ/PCともに絵文字＋名前表示・カテゴリー追加時は行が自動増加）,
     │                    # pin-list-sheet（11段階スナップ44px/25%/30%/35%/40%/45%/50%/55%/60%/65%/85%・展開縮小ボタンは44px↔65%のトグル・ピルハンドル下に全件/表示範囲トグル（onListScopeChangeコールバック経由）・件数表示はactivePins.length（フィルター適用後）・ソート・フィルターセクションボタン4色（カテゴリー=青 #3b82f6 LayoutGrid・リアクション=緑 #22c55e Smile・マイタグ=紫 #8b5cf6 Tag・撮影日=橙 #f59e0b Calendar）・SectionFilterButtonのpadding:10px 6px（タッチターゲット~44px確保）・FilterPillのpadding:8px 12px（タッチターゲット確保）・ドラッグに8pxデッドゾーン（dragRefにdraggingフラグ・8px超でsetPointerCapture）・フィルター展開時にシートが45%未満なら45%に自動拡張（sheetHeightRefで読み取り・openSection/isFilterBarOpen変化時のみ発火）・フィルターpillsはflexWrap折り返し表示・タグフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリックで閉じる）・フィルター適用中はFilterXアイコンボタンをフィルターボタン左隣に表示・撮影日フィルター=toLocalDateStr()でローカルタイムゾーン基準・今週=日曜起点・今月=1日・今年=1月1日・プリセット選択状態を色で表示・タイトル行にreaction絵文字インライン表示・撮影日時右隣にtag表示・キーワード検索がtag対象・pin.thumbnailPhotoIdでサムネイル選択・handleFilteredPinsChangeをuseCallback([pins])でメモ化しPinListSheetに渡す（インライン関数による無限ループ防止）・onFilteredPinsChangeで地図マーカーフィルターと同期含む・ショッピングカテゴリーピン行に未チェック品目数バッジ「残りN件」（#d946ef）表示），
-    │                    # pin-detail-sheet（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム（写真コメントをlightboxに表示）・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所（location）フィールド・ダウンロード許可トグル・写真一括追加・各写真に個別コメント入力・★/☆ボタンでサムネ選択（thumbnailPhotoId）・isDirtyによる保存ボタン活性化制御（isNew=trueは常時活性）・pendingAddIds/pendingItemPhotoIdsで閉じる時の未保存写真自動削除・マイタグ入力欄（コメント下）にドロップダウンサジェスト・フッター「閉じる」ボタン含む・ショッピングカテゴリー時のみ買い物リストセクション表示（コメント直後・マイタグ直前）：品目追加/チェック/削除・品目ごとに参照写真1枚（saveForShoppingItem経由・メインギャラリーから除外）・「チェック済みを削除」ボタン・「このリストをコピーして新規作成」ボタン（onCreateCopyコールバック経由）・syncRepository/encryptionKey/cryptoService props経由で遅延写真ロード（R2にありローカルにない写真を自動復元・復元時に復号blobからEXIF再抽出して保存））,
+    │                    # pin-detail-sheet（高さ75%固定・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム（写真コメントをlightboxに表示）・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・補足情報accordion先頭に撮影場所（location）フィールド・ダウンロード許可トグル・写真一括追加・各写真に個別コメント入力・★/☆ボタンでサムネ選択（thumbnailPhotoId）・isDirtyによる保存ボタン活性化制御（isNew=trueは常時活性）・pendingAddIds/pendingItemPhotoIdsで閉じる時の未保存写真自動削除・マイタグ入力欄（コメント下）にドロップダウンサジェスト・フッター「閉じる」ボタン含む・ショッピングカテゴリー時のみ買い物リストセクション表示（コメント直後・マイタグ直前）：品目追加/チェック/削除・品目ごとに参照写真1枚（saveForShoppingItem経由・メインギャラリーから除外）・「チェック済みを削除」ボタン・「このリストをコピーして新規作成」ボタン（onCreateCopyコールバック経由）・syncRepository/encryptionKey/cryptoService props経由で遅延写真ロード（R2にありローカルにない写真を自動復元・復元時に復号blobからEXIF再抽出して保存）・初回ロード時にexif未保存の既存写真もblobから再抽出してupdateExif()でDB永続化（2回目以降は即時表示））,
     │                    # cluster-sheet, current-location-button（左側配置 top:160 left:8・取得後に地図を flyTo して現在地マーカー（青点）を表示），
     │                    # settings-sheet（地図情報更新（POIキャッシュclr+SW更新チェック）・ソート順・地図検索ON/OFF（Nominatim・同意ダイアログ付き）・ガイドメッセージON/OFF＋折りたたみ解除ボタン・昼夜自動テーマ切り替えトグル＋時刻設定・同期セクション（Proバッジ付きヘッダー・同期状態表示・今すぐ同期・パスフレーズ再入力・ログアウト（IndexedDB key_store削除）・onLogoutコールバック経由でmap-viewのencryptionKeyをクリア）・バックアップセクション（最終エクスポート日時・30日未バックアップ時に警告バナー）），
     │                    # pwa-update-dialog（新SW待機時にダイアログ表示・「後で」は1時間スキップ・タブ再オープン（ページロード）時はスヌーズ無視で即表示・visibilitychange+タイマーで再表示（スヌーズ尊重）・useRegisterSW使用）,

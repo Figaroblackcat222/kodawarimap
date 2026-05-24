@@ -197,16 +197,28 @@ export const cloudflareSyncRepository: SyncRepository = {
   // 写真同期
   // ---------------------------------------------------------------------------
 
-  async fetchPhotoList(
-    pinId: string
-  ): Promise<{ id: string; hlcPhysical: number; hlcLogical: number }[]> {
+  async fetchPhotoList(pinId: string): Promise<
+    {
+      id: string;
+      hlcPhysical: number;
+      hlcLogical: number;
+      encryptedMeta: string;
+      metaIv: string;
+    }[]
+  > {
     const res = await fetchWithAuth(`${API_BASE}/api/photos/list/${pinId}`, { method: "GET" });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(data.error ?? `fetchPhotoList failed: ${res.status}`);
     }
     const data = (await res.json()) as {
-      photos: { id: string; hlcPhysical: number; hlcLogical: number }[];
+      photos: {
+        id: string;
+        hlcPhysical: number;
+        hlcLogical: number;
+        encryptedMeta: string;
+        metaIv: string;
+      }[];
     };
     return data.photos;
   },

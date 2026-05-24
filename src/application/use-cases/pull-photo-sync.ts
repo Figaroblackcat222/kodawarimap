@@ -10,6 +10,14 @@ import type { PhotoRepository } from "@application/ports/photo-repository";
 import type { CryptoService } from "@application/ports/crypto-service";
 import type { Photo, PhotoExif } from "@domain/entities/photo";
 
+interface PhotoMetaData {
+  schemaVersion: 1;
+  data: {
+    shoppingItemId?: string;
+    comment?: string;
+  };
+}
+
 export async function pullPhotoSync(
   syncRepo: SyncRepository,
   pinRepo: PinRepository,
@@ -24,7 +32,13 @@ export async function pullPhotoSync(
   let downloadedCount = 0;
 
   for (const pin of pins) {
-    let remoteList: { id: string; hlcPhysical: number; hlcLogical: number }[];
+    let remoteList: {
+      id: string;
+      hlcPhysical: number;
+      hlcLogical: number;
+      encryptedMeta: string;
+      metaIv: string;
+    }[];
     try {
       remoteList = await syncRepo.fetchPhotoList(pin.id);
     } catch {
@@ -44,6 +58,19 @@ export async function pullPhotoSync(
         const blob = new Blob([decryptedBuffer], { type: "image/jpeg" });
         const exif = extractExif ? await extractExif(blob).catch(() => undefined) : undefined;
 
+        let shoppingItemId: string | undefined;
+        try {
+          const metaJson = await cryptoService.decrypt(
+            encryptionKey,
+            remote.encryptedMeta,
+            remote.metaIv
+          );
+          const meta = JSON.parse(metaJson) as PhotoMetaData;
+          shoppingItemId = meta.data.shoppingItemId;
+        } catch {
+          // メタデータ復号失敗は無視して続行（shoppingItemId なしで保存）
+        }
+
         const photo: Photo = {
           id: remote.id,
           pinId: pin.id,
@@ -53,6 +80,7 @@ export async function pullPhotoSync(
           createdAt: new Date(remote.hlcPhysical),
           hlc: { physical: remote.hlcPhysical, logical: remote.hlcLogical, nodeId: "remote" },
           syncedAt: new Date(),
+          shoppingItemId,
         };
         await photoRepo.restore(photo);
         downloadedCount++;

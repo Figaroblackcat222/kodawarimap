@@ -17,6 +17,8 @@ interface D1PhotoRow {
   hlc_physical: number;
   hlc_logical: number;
   is_deleted: number;
+  encrypted_meta: string;
+  meta_iv: string;
 }
 
 interface PhotoListItem {
@@ -24,6 +26,8 @@ interface PhotoListItem {
   hlcPhysical: number;
   hlcLogical: number;
   isDeleted: boolean;
+  encryptedMeta: string;
+  metaIv: string;
 }
 
 function getOrigin(request: Request): string | null {
@@ -61,7 +65,7 @@ async function handleGetPhotoList(request: Request, env: Env, pinId: string): Pr
   const { userId } = authResult;
 
   const rows = await env.DB.prepare(
-    `SELECT id, pin_id, hlc_physical, hlc_logical, is_deleted
+    `SELECT id, pin_id, hlc_physical, hlc_logical, is_deleted, encrypted_meta, meta_iv
      FROM photos_sync
      WHERE user_id = ? AND pin_id = ? AND is_deleted = 0
      ORDER BY hlc_physical ASC, hlc_logical ASC`
@@ -74,6 +78,8 @@ async function handleGetPhotoList(request: Request, env: Env, pinId: string): Pr
     hlcPhysical: r.hlc_physical,
     hlcLogical: r.hlc_logical,
     isDeleted: r.is_deleted === 1,
+    encryptedMeta: r.encrypted_meta,
+    metaIv: r.meta_iv,
   }));
 
   return jsonResponse({ photos }, 200, origin, env.CORS_ORIGIN);
