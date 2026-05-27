@@ -142,7 +142,11 @@ export function SettingsSheet({
       if ("serviceWorker" in navigator) {
         const reg = await navigator.serviceWorker.getRegistration();
         if (reg) {
-          await reg.update();
+          try {
+            await reg.update();
+          } catch {
+            // ネットワークエラー等は無視して続行
+          }
           if (reg.waiting) {
             reg.waiting.postMessage({ type: "SKIP_WAITING" });
             window.location.reload();
