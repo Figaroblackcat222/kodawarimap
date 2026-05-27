@@ -1273,7 +1273,13 @@ export function MapView() {
 
       {/* リロードボタン */}
       <button
-        onClick={() => window.location.reload()}
+        onClick={async () => {
+          if ("serviceWorker" in navigator) {
+            const reg = await navigator.serviceWorker.getRegistration().catch(() => undefined);
+            if (reg?.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+          }
+          window.location.reload();
+        }}
         style={{
           position: "absolute",
           top: 48,
