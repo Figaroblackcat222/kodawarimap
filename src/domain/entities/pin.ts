@@ -40,6 +40,7 @@ export interface Pin {
   exif?: PinExif;
   allowPhotoDownload?: boolean;
   reaction?: PinReaction;
+  rating?: number;
   thumbnailPhotoId?: string;
   shoppingItems?: ShoppingItem[];
   hlc: HLC;

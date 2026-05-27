@@ -11,6 +11,7 @@ import {
   Smile,
   Tag,
   Calendar,
+  Star,
   AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
@@ -60,7 +61,8 @@ interface Props {
   sheetHeight: number;
   onSheetHeightChange: (h: number) => void;
   trashRetentionDays: number;
-  sortOrder: "date" | "title";
+  sortOrder: "date" | "title" | "rating";
+  onSortOrderChange: (order: "date" | "title" | "rating") => void;
   listScope: "all" | "visible";
   onListScopeChange: (v: "all" | "visible") => void;
   mapBounds: MapBounds | null;
@@ -101,7 +103,15 @@ function applyDatePreset(
   setTo("");
 }
 
-function PinThumb({ pin, photoRepo }: { pin: Pin; photoRepo: PhotoRepository }) {
+function PinThumb({
+  pin,
+  photoRepo,
+  onClick,
+}: {
+  pin: Pin;
+  photoRepo: PhotoRepository;
+  onClick?: () => void;
+}) {
   const [url, setUrl] = useState<string | null>(null);
   const [count, setCount] = useState(0);
 
@@ -126,7 +136,10 @@ function PinThumb({ pin, photoRepo }: { pin: Pin; photoRepo: PhotoRepository }) 
 
   if (!url) return null;
   return (
-    <div style={{ position: "relative", flexShrink: 0 }}>
+    <div
+      style={{ position: "relative", flexShrink: 0, cursor: onClick ? "pointer" : "default" }}
+      onClick={onClick}
+    >
       <img
         src={url}
         alt=""
@@ -167,6 +180,7 @@ export function PinListSheet({
   onSheetHeightChange,
   trashRetentionDays,
   sortOrder,
+  onSortOrderChange,
   listScope,
   onListScopeChange,
   mapBounds,
@@ -178,13 +192,16 @@ export function PinListSheet({
   const [showTrash, setShowTrash] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [reactionFilter, setReactionFilter] = useState<PinReaction | "none" | "all">("all");
-  const [openSection, setOpenSection] = useState<"category" | "reaction" | "tag" | "date" | null>(
-    null
-  );
+  const [ratingFilter, setRatingFilter] = useState<6 | 8 | 10 | null>(null);
+  const [quickSort, setQuickSort] = useState<"rating" | null>(null);
+  const [openSection, setOpenSection] = useState<
+    "category" | "reaction" | "tag" | "date" | "rating" | null
+  >(null);
   const [isFilterBarOpen, setIsFilterBarOpen] = useState(false);
   const [takenFrom, setTakenFrom] = useState("");
   const [takenTo, setTakenTo] = useState("");
   const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<
     { type: "all" } | { type: "one"; pin: Pin } | null
   >(null);
@@ -279,6 +296,9 @@ export function PinListSheet({
         result = result.filter((p) => p.reaction === reactionFilter);
       }
     }
+    if (ratingFilter !== null) {
+      result = result.filter((p) => (p.rating ?? 0) >= ratingFilter);
+    }
     if (tagFilter.length > 0) {
       result = result.filter((p) => p.tag && tagFilter.includes(p.tag));
     }
@@ -293,7 +313,9 @@ export function PinListSheet({
         return true;
       });
     }
-    if (sortOrder === "title") {
+    if (quickSort === "rating" || sortOrder === "rating") {
+      result = [...result].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    } else if (sortOrder === "title") {
       result = [...result].sort((a, b) => a.title.localeCompare(b.title, "ja"));
     } else {
       result = [...result].sort((a, b) => {
@@ -308,6 +330,8 @@ export function PinListSheet({
     keyword,
     categoryFilter,
     reactionFilter,
+    ratingFilter,
+    quickSort,
     tagFilter,
     takenFrom,
     takenTo,
@@ -340,6 +364,9 @@ export function PinListSheet({
         result = result.filter((p) => p.reaction === reactionFilter);
       }
     }
+    if (ratingFilter !== null) {
+      result = result.filter((p) => (p.rating ?? 0) >= ratingFilter);
+    }
     if (tagFilter.length > 0) {
       result = result.filter((p) => p.tag && tagFilter.includes(p.tag));
     }
@@ -355,7 +382,7 @@ export function PinListSheet({
       });
     }
     return result;
-  }, [pins, keyword, categoryFilter, reactionFilter, tagFilter, takenFrom, takenTo]);
+  }, [pins, keyword, categoryFilter, reactionFilter, ratingFilter, tagFilter, takenFrom, takenTo]);
 
   useEffect(() => {
     onFilteredPinsChange?.(filteredForMap);
@@ -415,7 +442,7 @@ export function PinListSheet({
               alignItems: "center",
               justifyContent: "center",
               padding: "4px 16px 8px",
-              fontSize: 13,
+              fontSize: 14,
               color: "var(--text-secondary)",
             }}
           >
@@ -429,7 +456,7 @@ export function PinListSheet({
                   border: "1px solid var(--border)",
                   borderRadius: 12,
                   overflow: "hidden",
-                  fontSize: 11,
+                  fontSize: 12,
                 }}
               >
                 <button
@@ -440,7 +467,7 @@ export function PinListSheet({
                     background: listScope === "all" ? "#3b82f6" : "var(--bg-primary)",
                     color: listScope === "all" ? "#fff" : "var(--text-secondary)",
                     cursor: "pointer",
-                    fontSize: 11,
+                    fontSize: 12,
                   }}
                 >
                   全件
@@ -453,7 +480,7 @@ export function PinListSheet({
                     background: listScope === "visible" ? "#3b82f6" : "var(--bg-primary)",
                     color: listScope === "visible" ? "#fff" : "var(--text-secondary)",
                     cursor: "pointer",
-                    fontSize: 11,
+                    fontSize: 12,
                   }}
                 >
                   表示範囲
@@ -463,15 +490,91 @@ export function PinListSheet({
             <span>
               {showTrash ? `ゴミ箱 ${deletedPins.length}件` : `ピン ${activePins.length}件`}
             </span>
+            {!showTrash && (
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                style={{ position: "absolute", right: 52 }}
+              >
+                <button
+                  onClick={() => setSortDropdownOpen((v) => !v)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                    padding: "2px 8px",
+                    border: `1px solid ${sortOrder !== "date" ? "#3b82f6" : "var(--border)"}`,
+                    borderRadius: 12,
+                    background: sortOrder !== "date" ? "#3b82f6" : "var(--bg-primary)",
+                    color: sortOrder !== "date" ? "#fff" : "var(--text-secondary)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {sortOrder === "date"
+                    ? "撮影日"
+                    : sortOrder === "title"
+                      ? "タイトル"
+                      : "おすすめ"}
+                  <ChevronDown size={10} />
+                </button>
+                {sortDropdownOpen && (
+                  <>
+                    <div
+                      style={{ position: "fixed", inset: 0, zIndex: 29 }}
+                      onClick={() => setSortDropdownOpen(false)}
+                    />
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 4px)",
+                        right: 0,
+                        zIndex: 30,
+                        background: "var(--bg-primary)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        boxShadow: "0 4px 12px var(--shadow)",
+                        overflow: "hidden",
+                        minWidth: 90,
+                      }}
+                    >
+                      {(["date", "title", "rating"] as const).map((v) => (
+                        <button
+                          key={v}
+                          onClick={() => {
+                            onSortOrderChange(v);
+                            setSortDropdownOpen(false);
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "8px 12px",
+                            border: "none",
+                            background: sortOrder === v ? "#3b82f6" : "transparent",
+                            color: sortOrder === v ? "#fff" : "var(--text-primary)",
+                            fontSize: 13,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {v === "date" ? "撮影日" : v === "title" ? "タイトル" : "おすすめ"}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <button
               onPointerDown={(e) => e.stopPropagation()}
               onClick={handleCollapseToggle}
               style={{
                 position: "absolute",
-                right: 8,
+                right: 4,
                 background: "none",
                 border: "none",
-                padding: 4,
+                padding: 11,
                 cursor: "pointer",
                 color: "var(--text-secondary)",
                 display: "flex",
@@ -479,7 +582,7 @@ export function PinListSheet({
               }}
               title="表示切替"
             >
-              {isExpanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+              {isExpanded ? <ChevronDown size={22} /> : <ChevronUp size={22} />}
             </button>
           </div>
         </div>
@@ -507,7 +610,7 @@ export function PinListSheet({
                     padding: "6px 0",
                     border: "none",
                     borderRadius: 8,
-                    fontSize: 13,
+                    fontSize: 14,
                     cursor: "pointer",
                     background: !showTrash ? "var(--text-primary)" : "var(--bg-tertiary)",
                     color: !showTrash ? "var(--bg-primary)" : "var(--text-secondary)",
@@ -531,7 +634,7 @@ export function PinListSheet({
                     padding: "6px 0",
                     border: "none",
                     borderRadius: 8,
-                    fontSize: 13,
+                    fontSize: 14,
                     cursor: "pointer",
                     background: showTrash ? "var(--text-primary)" : "var(--bg-tertiary)",
                     color: showTrash ? "var(--bg-primary)" : "var(--text-secondary)",
@@ -570,7 +673,7 @@ export function PinListSheet({
                           padding: keyword ? "8px 32px 8px 12px" : "8px 12px",
                           borderRadius: 8,
                           border: "1.5px solid var(--border)",
-                          fontSize: 14,
+                          fontSize: 15,
                           outline: "none",
                           boxSizing: "border-box",
                           background: "var(--input-bg)",
@@ -600,6 +703,7 @@ export function PinListSheet({
                     </div>
                     {(categoryFilter !== "all" ||
                       reactionFilter !== "all" ||
+                      ratingFilter !== null ||
                       tagFilter.length > 0 ||
                       takenFrom ||
                       takenTo) && (
@@ -607,6 +711,8 @@ export function PinListSheet({
                         onClick={() => {
                           setCategoryFilter("all");
                           setReactionFilter("all");
+                          setRatingFilter(null);
+                          setQuickSort(null);
                           setTagFilter([]);
                           setTakenFrom("");
                           setTakenTo("");
@@ -642,7 +748,7 @@ export function PinListSheet({
                         padding: "8px 10px",
                         border: "1.5px solid var(--border)",
                         borderRadius: 8,
-                        fontSize: 12,
+                        fontSize: 13,
                         cursor: "pointer",
                         background: isFilterBarOpen ? "var(--text-primary)" : "var(--bg-primary)",
                         color: isFilterBarOpen ? "var(--bg-primary)" : "var(--text-secondary)",
@@ -667,6 +773,14 @@ export function PinListSheet({
                         }
                         color="#3b82f6"
                         icon={LayoutGrid}
+                      />
+                      <SectionFilterButton
+                        label="★評価"
+                        active={openSection === "rating"}
+                        hasFilter={ratingFilter !== null}
+                        onClick={() => setOpenSection((s) => (s === "rating" ? null : "rating"))}
+                        color="#f59e0b"
+                        icon={Star}
                       />
                       <SectionFilterButton
                         label="リアクション"
@@ -764,7 +878,7 @@ export function PinListSheet({
                       {openSection === "tag" && (
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                           {tagKeywords.length === 0 ? (
-                            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
                               マイタグがまだ記録されていません
                             </p>
                           ) : (
@@ -782,6 +896,59 @@ export function PinListSheet({
                               />
                             ))
                           )}
+                        </div>
+                      )}
+
+                      {openSection === "rating" && (
+                        <div>
+                          <div
+                            style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}
+                          >
+                            <FilterPill
+                              label="すべて"
+                              active={ratingFilter === null}
+                              color="#6b7280"
+                              onClick={() => setRatingFilter(null)}
+                            />
+                            <FilterPill
+                              label="★3以上"
+                              active={ratingFilter === 6}
+                              color="#f59e0b"
+                              onClick={() => setRatingFilter(6)}
+                            />
+                            <FilterPill
+                              label="★4以上"
+                              active={ratingFilter === 8}
+                              color="#f59e0b"
+                              onClick={() => setRatingFilter(8)}
+                            />
+                            <FilterPill
+                              label="★5のみ"
+                              active={ratingFilter === 10}
+                              color="#f59e0b"
+                              onClick={() => setRatingFilter(10)}
+                            />
+                          </div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                              ソート:
+                            </span>
+                            <button
+                              onClick={() => setQuickSort(quickSort === "rating" ? null : "rating")}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 12,
+                                border: "none",
+                                fontSize: 13,
+                                cursor: "pointer",
+                                background: quickSort === "rating" ? "#f59e0b" : "var(--pill-bg)",
+                                color: quickSort === "rating" ? "#fff" : "var(--pill-text)",
+                                fontWeight: quickSort === "rating" ? 600 : 400,
+                              }}
+                            >
+                              ★評価順（高い順）
+                            </button>
+                          </div>
                         </div>
                       )}
 
@@ -836,7 +1003,7 @@ export function PinListSheet({
                             })}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 11, color: "#999", flexShrink: 0 }}>期間</span>
+                            <span style={{ fontSize: 12, color: "#999", flexShrink: 0 }}>期間</span>
                             <input
                               type="date"
                               value={takenFrom}
@@ -845,13 +1012,13 @@ export function PinListSheet({
                                 padding: "4px 6px",
                                 borderRadius: 6,
                                 border: "1.5px solid var(--border)",
-                                fontSize: 12,
+                                fontSize: 13,
                                 outline: "none",
                                 background: "var(--input-bg)",
                                 color: "var(--text-primary)",
                               }}
                             />
-                            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>〜</span>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>〜</span>
                             <input
                               type="date"
                               value={takenTo}
@@ -860,7 +1027,7 @@ export function PinListSheet({
                                 padding: "4px 6px",
                                 borderRadius: 6,
                                 border: "1.5px solid var(--border)",
-                                fontSize: 12,
+                                fontSize: 13,
                                 outline: "none",
                                 background: "var(--input-bg)",
                                 color: "var(--text-primary)",
@@ -877,7 +1044,7 @@ export function PinListSheet({
                                   background: "none",
                                   border: "none",
                                   color: "#aaa",
-                                  fontSize: 14,
+                                  fontSize: 15,
                                   cursor: "pointer",
                                   padding: "0 2px",
                                   display: "flex",
@@ -906,14 +1073,14 @@ export function PinListSheet({
                   padding: "6px 12px",
                 }}
               >
-                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
                   削除後{trashRetentionDays}日で自動削除されます
                 </p>
                 {deletedPins.length > 0 && (
                   <button
                     onClick={() => setDeleteConfirm({ type: "all" })}
                     style={{
-                      fontSize: 12,
+                      fontSize: 13,
                       color: "#ef4444",
                       background: "none",
                       border: "1px solid #ef4444",
@@ -936,7 +1103,7 @@ export function PinListSheet({
                   style={{
                     textAlign: "center",
                     color: "var(--text-muted)",
-                    fontSize: 13,
+                    fontSize: 14,
                     marginTop: 24,
                   }}
                 >
@@ -956,7 +1123,11 @@ export function PinListSheet({
                         gap: 8,
                       }}
                     >
-                      <PinThumb pin={pin} photoRepo={photoRepo} />
+                      <PinThumb
+                        pin={pin}
+                        photoRepo={photoRepo}
+                        onClick={!showTrash ? () => onPinFlyTo(pin) : undefined}
+                      />
                       <button
                         onClick={() => {
                           if (!showTrash) {
@@ -986,7 +1157,7 @@ export function PinListSheet({
                           )}
                           <span
                             style={{
-                              fontSize: 14,
+                              fontSize: 15,
                               fontWeight: 600,
                               color: showTrash ? "var(--text-muted)" : "var(--text-primary)",
                               overflow: "hidden",
@@ -997,8 +1168,20 @@ export function PinListSheet({
                             {pin.title}
                           </span>
                           {pin.reaction && (
-                            <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>
+                            <span style={{ fontSize: 15, lineHeight: 1, flexShrink: 0 }}>
                               {REACTION_EMOJI_MAP[pin.reaction]}
+                            </span>
+                          )}
+                          {pin.rating != null && (
+                            <span
+                              style={{
+                                fontSize: 12,
+                                color: "#f59e0b",
+                                lineHeight: 1,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {`★${(pin.rating / 2).toFixed(pin.rating % 2 === 0 ? 0 : 1)}`}
                             </span>
                           )}
                         </div>
@@ -1010,7 +1193,7 @@ export function PinListSheet({
                             paddingLeft: 14,
                           }}
                         >
-                          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
                             {(pin.exif?.takenAt ?? pin.createdAt).toLocaleString("ja-JP", {
                               year: "numeric",
                               month: "long",
@@ -1026,7 +1209,7 @@ export function PinListSheet({
                           {pin.tag && (
                             <span
                               style={{
-                                fontSize: 11,
+                                fontSize: 12,
                                 color: "var(--text-muted)",
                                 whiteSpace: "nowrap",
                               }}
@@ -1042,7 +1225,7 @@ export function PinListSheet({
                               return unchecked > 0 ? (
                                 <span
                                   style={{
-                                    fontSize: 11,
+                                    fontSize: 12,
                                     color: "#d946ef",
                                     fontWeight: 600,
                                     whiteSpace: "nowrap",
@@ -1056,7 +1239,7 @@ export function PinListSheet({
                         {pin.comment && (
                           <span
                             style={{
-                              fontSize: 11,
+                              fontSize: 12,
                               color: "var(--text-secondary)",
                               paddingLeft: 14,
                               overflow: "hidden",
@@ -1080,7 +1263,7 @@ export function PinListSheet({
                               border: "none",
                               borderRadius: 6,
                               padding: "4px 10px",
-                              fontSize: 12,
+                              fontSize: 13,
                               cursor: "pointer",
                             }}
                           >
@@ -1094,7 +1277,7 @@ export function PinListSheet({
                               border: "none",
                               borderRadius: 6,
                               padding: "4px 10px",
-                              fontSize: 12,
+                              fontSize: 13,
                               cursor: "pointer",
                             }}
                           >
@@ -1171,7 +1354,7 @@ export function PinListSheet({
             <p
               style={{
                 margin: "0 0 20px",
-                fontSize: 14,
+                fontSize: 15,
                 color: "var(--text-secondary)",
                 lineHeight: 1.6,
               }}
@@ -1189,7 +1372,7 @@ export function PinListSheet({
                   borderRadius: 8,
                   background: "var(--bg-primary)",
                   color: "var(--text-secondary)",
-                  fontSize: 14,
+                  fontSize: 15,
                   cursor: "pointer",
                 }}
               >
@@ -1210,7 +1393,7 @@ export function PinListSheet({
                   borderRadius: 8,
                   background: "#ef4444",
                   color: "#fff",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
@@ -1244,7 +1427,7 @@ function FilterPill({
         border: "none",
         borderRadius: 14,
         padding: "8px 12px",
-        fontSize: 12,
+        fontSize: 13,
         cursor: "pointer",
         whiteSpace: "nowrap",
         background: active ? color : "var(--pill-bg)",
@@ -1287,7 +1470,7 @@ function SectionFilterButton({
         border: "1px solid",
         borderColor: hasFilter ? color : "var(--border)",
         borderRadius: 8,
-        fontSize: 12,
+        fontSize: 13,
         cursor: "pointer",
         background: active ? color : "var(--bg-primary)",
         color: active ? "#fff" : hasFilter ? color : "var(--text-secondary)",

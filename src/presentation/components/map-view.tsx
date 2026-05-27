@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import { useMediaQuery } from "@presentation/hooks/use-media-query";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Feature } from "geojson";
@@ -59,7 +60,7 @@ function getInitialTrashRetentionDays(): number {
   return parseInt(localStorage.getItem(TRASH_RETENTION_KEY) ?? "30", 10);
 }
 
-type SortOrder = "date" | "title";
+type SortOrder = "date" | "title" | "rating";
 type ListScope = "all" | "visible";
 
 type MapBounds = { west: number; east: number; south: number; north: number };
@@ -454,6 +455,7 @@ export function MapView() {
   const [clusterPins, setClusterPins] = useState<Pin[] | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [sheetHeight, setSheetHeight] = useState<number>(getInitialSheetHeight);
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [trashRetentionDays, setTrashRetentionDays] = useState<number>(
     getInitialTrashRetentionDays
@@ -1089,10 +1091,13 @@ export function MapView() {
     () => sheetHeight
   );
 
-  // sheetHeight 変化時にMapLibreのキャンバスをリサイズ
+  // sheetHeight / 詳細パネル開閉時にMapLibreのキャンバスをリサイズ
   useEffect(() => {
-    mapRef.current?.resize();
-  }, [sheetHeight, mapRef]);
+    const timer = setTimeout(() => {
+      mapRef.current?.resize();
+    }, 320);
+    return () => clearTimeout(timer);
+  }, [sheetHeight, selectedPin, isDesktop, mapRef]);
 
   // 起動時にDBからピンを復元 + 期限切れパージ
   useEffect(() => {
@@ -1244,7 +1249,14 @@ export function MapView() {
           100% { box-shadow: 0 0 0 10px rgba(59,130,246,0); }
         }
       `}</style>
-      <div ref={containerRef} style={{ width: "100%", height: `calc(100vh - ${sheetHeight}px)` }} />
+      <div
+        ref={containerRef}
+        style={{
+          width: isDesktop && selectedPin ? `calc(100% - 400px)` : "100%",
+          height: `calc(100vh - ${sheetHeight}px)`,
+          transition: "width 0.3s ease",
+        }}
+      />
       <MessageTicker
         message={tickerMessage}
         label={tickerLabel}
@@ -1323,6 +1335,7 @@ export function MapView() {
         trashRetentionDays={trashRetentionDays}
         onPinFlyTo={handlePinFlyTo}
         sortOrder={sortOrder}
+        onSortOrderChange={handleSortOrderChange}
         listScope={listScope}
         onListScopeChange={handleListScopeChange}
         mapBounds={mapBounds}
@@ -1499,7 +1512,6 @@ export function MapView() {
             setIsNewPin(false);
           }}
           onCreateCopy={(items) => handleCreateCopyFromPin(selectedPin, items)}
-          sheetHeight={sheetHeight}
           tagKeywords={tagKeywords}
           syncRepository={encryptionKey ? cloudflareSyncRepository : undefined}
           encryptionKey={encryptionKey ?? undefined}
@@ -1525,8 +1537,6 @@ export function MapView() {
           onImportComplete={refreshLists}
           trashRetentionDays={trashRetentionDays}
           onTrashRetentionChange={handleTrashRetentionChange}
-          sortOrder={sortOrder}
-          onSortOrderChange={handleSortOrderChange}
           autoNightMode={autoNightMode}
           onAutoNightModeChange={handleAutoNightModeChange}
           nightStart={nightStart}

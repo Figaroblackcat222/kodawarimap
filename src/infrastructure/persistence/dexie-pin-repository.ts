@@ -31,6 +31,7 @@ function recordToPin(r: PinRecord): Pin {
     videoUrl: r.videoUrl,
     allowPhotoDownload: r.allowPhotoDownload,
     reaction: r.reaction as PinReaction | undefined,
+    rating: r.rating,
     thumbnailPhotoId: r.thumbnailPhotoId,
     shoppingItems: r.shoppingItemsJson
       ? (JSON.parse(r.shoppingItemsJson) as ShoppingItem[])
@@ -74,6 +75,7 @@ export const dexiePinRepository: PinRepository = {
       videoUrl: pin.videoUrl,
       allowPhotoDownload: pin.allowPhotoDownload,
       reaction: pin.reaction,
+      rating: pin.rating,
       thumbnailPhotoId: pin.thumbnailPhotoId,
       shoppingItemsJson:
         pin.shoppingItems && pin.shoppingItems.length > 0

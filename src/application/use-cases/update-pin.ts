@@ -16,6 +16,7 @@ export async function updatePin(
     exif?: PinExif;
     allowPhotoDownload?: boolean;
     reaction?: PinReaction;
+    rating?: number;
     thumbnailPhotoId?: string;
     shoppingItems?: ShoppingItem[];
   }

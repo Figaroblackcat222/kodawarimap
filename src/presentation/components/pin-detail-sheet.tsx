@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   X,
+  ChevronLeft,
   Plus,
   Loader2,
   Pencil,
@@ -13,7 +14,10 @@ import {
   Trash2,
   Square,
   CheckSquare,
+  Star,
+  Share2,
 } from "lucide-react";
+import { useMediaQuery } from "@presentation/hooks/use-media-query";
 import { normalizePhoto } from "@infrastructure/image/normalize-photo";
 import { parseExif } from "@infrastructure/exif/exif-parser";
 import { downloadPhoto } from "@infrastructure/image/write-exif";
@@ -31,7 +35,6 @@ interface Props {
   onSave: (updated: Pin) => void;
   onClose: () => void;
   onCreateCopy?: (items: ShoppingItem[]) => void;
-  sheetHeight: number;
   tagKeywords: string[];
   /** 写真遅延ロード用。未指定の場合はスキップ */
   syncRepository?: SyncRepository;
@@ -109,6 +112,8 @@ export function PinDetailSheet({
   const [addProgress, setAddProgress] = useState<{ current: number; total: number } | null>(null);
   const [allowPhotoDownload, setAllowPhotoDownload] = useState(pin.allowPhotoDownload ?? false);
   const [reaction, setReaction] = useState<PinReaction | undefined>(pin.reaction);
+  const [rating, setRating] = useState<number | undefined>(pin.rating);
+  const [copyToast, setCopyToast] = useState(false);
   const [thumbnailPhotoId, setThumbnailPhotoId] = useState<string | undefined>(
     pin.thumbnailPhotoId
   );
@@ -122,6 +127,9 @@ export function PinDetailSheet({
   const [lbScale, setLbScale] = useState(1);
   const lbScaleRef = useRef(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const starContainerRef = useRef<HTMLDivElement>(null);
+  const starsOnlyRef = useRef<HTMLDivElement>(null);
+  const isDraggingStarsRef = useRef(false);
   const swipeDragRef = useRef<{ startX: number } | null>(null);
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const filteredTagKeywords = useMemo(
@@ -134,6 +142,8 @@ export function PinDetailSheet({
   const initialPhotoCountRef = useRef<number | null>(null);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [isLoadingRemotePhotos, setIsLoadingRemotePhotos] = useState(false);
+  const isDesktop = useMediaQuery("(min-width: 768px)");
+  const [mounted, setMounted] = useState(false);
 
   const isDirty =
     title !== pin.title ||
@@ -146,6 +156,7 @@ export function PinDetailSheet({
     takenAt !== (pin.exif?.takenAt ? toDatetimeLocal(pin.exif.takenAt) : "") ||
     allowPhotoDownload !== (pin.allowPhotoDownload ?? false) ||
     reaction !== pin.reaction ||
+    rating !== pin.rating ||
     thumbnailPhotoId !== pin.thumbnailPhotoId ||
     pendingDeleteIds.length > 0 ||
     (initialPhotoCountRef.current !== null && photos.length > initialPhotoCountRef.current) ||
@@ -385,9 +396,57 @@ export function PinDetailSheet({
       exif: updatedExif,
       allowPhotoDownload,
       reaction,
+      rating,
       thumbnailPhotoId,
       shoppingItems: shoppingItems.length > 0 ? shoppingItems : undefined,
     });
+  };
+
+  const handleShareLocation = async () => {
+    const { lat, lng } = pin.coordinates;
+    const googleMapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
+
+    const bodyParts: string[] = [pin.title];
+    if (pin.location) bodyParts.push(pin.location);
+    if (pin.comment) bodyParts.push(pin.comment);
+    const bodyText = bodyParts.join("\n");
+
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: pin.title,
+          text: bodyText,
+          url: googleMapsUrl,
+        });
+        return;
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+      }
+    }
+
+    const clipText = [...bodyParts, googleMapsUrl].join("\n");
+    try {
+      await navigator.clipboard.writeText(clipText);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = clipText;
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopyToast(true);
+    setTimeout(() => setCopyToast(false), 2000);
+  };
+
+  const getStarFromPointer = (clientX: number): number | undefined => {
+    const container = starsOnlyRef.current;
+    if (!container) return undefined;
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    if (x < 0) return undefined;
+    return Math.min(10, Math.max(1, Math.ceil((x / rect.width) * 10)));
   };
 
   const handleAddPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -514,6 +573,21 @@ export function PinDetailSheet({
     pinchInitRef.current = null;
   }, [lightboxIndex]);
 
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  useEffect(() => {
+    if (lightboxIndex !== null) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightboxIndex, isDirty]);
+
   return (
     <>
       <div
@@ -521,22 +595,28 @@ export function PinDetailSheet({
           position: "absolute",
           inset: 0,
           zIndex: 30,
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "flex-end",
-          background: "rgba(0,0,0,0.15)",
+          background: isDesktop ? "transparent" : mounted ? "rgba(0,0,0,0.15)" : "transparent",
+          pointerEvents: isDesktop ? "none" : "auto",
+          transition: "background 0.3s",
         }}
         onClick={(e) => {
-          if (e.target === e.currentTarget) handleClose();
+          if (!isDesktop && e.target === e.currentTarget) handleClose();
         }}
       >
         <div
           style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: isDesktop ? 400 : "100%",
             background: "var(--bg-primary)",
-            borderRadius: "16px 16px 0 0",
             display: "flex",
             flexDirection: "column",
-            height: Math.round(window.innerHeight * 0.75),
+            boxShadow: "-4px 0 20px rgba(0,0,0,0.15)",
+            transform: mounted ? "translateX(0)" : "translateX(100%)",
+            transition: "transform 0.3s ease",
+            pointerEvents: "auto",
           }}
         >
           {/* ヘッダー（固定） */}
@@ -565,7 +645,7 @@ export function PinDetailSheet({
                 padding: 4,
               }}
             >
-              <X size={20} />
+              {isDesktop ? <X size={20} /> : <ChevronLeft size={24} />}
             </button>
           </div>
 
@@ -583,7 +663,7 @@ export function PinDetailSheet({
             {/* 撮影日時 */}
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
-                <label style={{ fontSize: 14, color: "var(--text-secondary)" }}>撮影日時</label>
+                <label style={{ fontSize: 15, color: "var(--text-secondary)" }}>撮影日時</label>
                 {!isEditingTakenAt && (
                   <button
                     onClick={() => setIsEditingTakenAt(true)}
@@ -601,6 +681,27 @@ export function PinDetailSheet({
                     <Pencil size={11} />
                   </button>
                 )}
+                <button
+                  onClick={handleShareLocation}
+                  style={{
+                    marginLeft: "auto",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "4px 10px",
+                    borderRadius: 8,
+                    border: "1.5px solid var(--border)",
+                    background: "var(--bg-primary)",
+                    color: "var(--text-secondary)",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Share2 size={13} />
+                  共有
+                </button>
               </div>
               {isEditingTakenAt ? (
                 <input
@@ -612,17 +713,17 @@ export function PinDetailSheet({
                     padding: "4px 8px",
                     borderRadius: 6,
                     border: "2px solid var(--border)",
-                    fontSize: 12,
+                    fontSize: 13,
                     outline: "none",
                     background: "var(--input-bg)",
                     color: "var(--text-primary)",
                   }}
                 />
               ) : (
-                <span style={{ fontSize: 15, color: "var(--text-primary)" }}>
+                <span style={{ fontSize: 16, color: "var(--text-primary)" }}>
                   {takenAt ? new Date(takenAt).toLocaleString("ja-JP") : "未設定"}
                   {pin.exif?.takenAtEstimated && (
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4 }}>
+                    <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 4 }}>
                       （推定）
                     </span>
                   )}
@@ -641,7 +742,7 @@ export function PinDetailSheet({
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <label style={{ fontSize: 14, color: "var(--text-secondary)" }}>写真</label>
+                  <label style={{ fontSize: 15, color: "var(--text-secondary)" }}>写真</label>
                   {isLoadingRemotePhotos && (
                     <Loader2
                       size={14}
@@ -660,7 +761,7 @@ export function PinDetailSheet({
                     border: "none",
                     borderRadius: 8,
                     padding: "8px 16px",
-                    fontSize: 14,
+                    fontSize: 15,
                     cursor: isAddingPhoto ? "default" : "pointer",
                     color: "var(--pill-text)",
                     display: "flex",
@@ -771,7 +872,7 @@ export function PinDetailSheet({
                               border: "none",
                               borderRadius: 4,
                               padding: "1px 4px",
-                              fontSize: 13,
+                              fontSize: 14,
                               cursor: "pointer",
                               lineHeight: 1,
                               color:
@@ -831,7 +932,7 @@ export function PinDetailSheet({
               ) : (
                 <p
                   style={{
-                    fontSize: 12,
+                    fontSize: 13,
                     color: "var(--text-muted)",
                     textAlign: "center",
                     margin: "8px 0",
@@ -846,7 +947,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 14,
+                  fontSize: 15,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 4,
@@ -875,7 +976,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 14,
+                  fontSize: 15,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 4,
@@ -893,7 +994,7 @@ export function PinDetailSheet({
                   padding: "10px 12px",
                   borderRadius: 8,
                   border: "2px solid var(--border)",
-                  fontSize: 14,
+                  fontSize: 15,
                   outline: "none",
                   boxSizing: "border-box",
                   resize: "vertical",
@@ -923,7 +1024,7 @@ export function PinDetailSheet({
                   }}
                 >
                   <span style={{ fontSize: 16 }}>🛍️</span>
-                  <span style={{ fontSize: 14, color: "var(--text-secondary)", fontWeight: 600 }}>
+                  <span style={{ fontSize: 15, color: "var(--text-secondary)", fontWeight: 600 }}>
                     買い物リスト
                   </span>
                 </div>
@@ -943,7 +1044,7 @@ export function PinDetailSheet({
                       padding: "8px 12px",
                       borderRadius: 8,
                       border: "2px solid var(--border)",
-                      fontSize: 14,
+                      fontSize: 15,
                       outline: "none",
                       background: "var(--input-bg)",
                       color: "var(--text-primary)",
@@ -957,7 +1058,7 @@ export function PinDetailSheet({
                       border: "none",
                       background: "#d946ef",
                       color: "#fff",
-                      fontSize: 14,
+                      fontSize: 15,
                       fontWeight: 600,
                       cursor: "pointer",
                     }}
@@ -1033,7 +1134,7 @@ export function PinDetailSheet({
                         <span
                           style={{
                             flex: 1,
-                            fontSize: 14,
+                            fontSize: 15,
                             color: "var(--text-primary)",
                             textDecoration: item.checked ? "line-through" : "none",
                             opacity: item.checked ? 0.5 : 1,
@@ -1069,7 +1170,7 @@ export function PinDetailSheet({
                         borderRadius: 8,
                         border: "1.5px solid var(--border)",
                         background: "none",
-                        fontSize: 13,
+                        fontSize: 14,
                         color: "var(--text-secondary)",
                         cursor: "pointer",
                       }}
@@ -1093,7 +1194,7 @@ export function PinDetailSheet({
                         borderRadius: 8,
                         border: "1.5px solid #d946ef",
                         background: "none",
-                        fontSize: 13,
+                        fontSize: 14,
                         color: "#d946ef",
                         cursor: "pointer",
                       }}
@@ -1109,7 +1210,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 14,
+                  fontSize: 15,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 4,
@@ -1132,7 +1233,7 @@ export function PinDetailSheet({
                     padding: "10px 12px",
                     borderRadius: 8,
                     border: "2px solid var(--border)",
-                    fontSize: 14,
+                    fontSize: 15,
                     outline: "none",
                     boxSizing: "border-box",
                     background: "var(--input-bg)",
@@ -1165,7 +1266,7 @@ export function PinDetailSheet({
                         style={{
                           padding: "10px 12px",
                           cursor: "pointer",
-                          fontSize: 14,
+                          fontSize: 15,
                           color: "var(--text-primary)",
                         }}
                       >
@@ -1181,7 +1282,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 14,
+                  fontSize: 15,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 8,
@@ -1198,7 +1299,7 @@ export function PinDetailSheet({
                       border: "none",
                       borderRadius: 18,
                       padding: "6px 14px",
-                      fontSize: 13,
+                      fontSize: 14,
                       cursor: "pointer",
                       fontWeight: categoryId === cat.id ? 700 : 400,
                       background: categoryId === cat.id ? cat.markerColor : "var(--pill-bg)",
@@ -1216,7 +1317,7 @@ export function PinDetailSheet({
             <div>
               <label
                 style={{
-                  fontSize: 14,
+                  fontSize: 15,
                   color: "var(--text-secondary)",
                   display: "block",
                   marginBottom: 8,
@@ -1237,7 +1338,7 @@ export function PinDetailSheet({
                           : "2px solid var(--border)",
                       borderRadius: 10,
                       padding: "8px 4px",
-                      fontSize: 13,
+                      fontSize: 14,
                       cursor: "pointer",
                       background: reaction === opt.value ? opt.bgColor : "var(--bg-primary)",
                       color: reaction === opt.value ? opt.color : "var(--text-secondary)",
@@ -1257,6 +1358,86 @@ export function PinDetailSheet({
               </div>
             </div>
 
+            {/* おすすめ度（★スライド・10段階） */}
+            <div>
+              <label
+                style={{
+                  fontSize: 15,
+                  color: "var(--text-secondary)",
+                  display: "block",
+                  marginBottom: 8,
+                }}
+              >
+                おすすめ度
+              </label>
+              <div
+                ref={starContainerRef}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  cursor: "ew-resize",
+                  userSelect: "none",
+                  touchAction: "none",
+                }}
+                onPointerDown={(e) => {
+                  isDraggingStarsRef.current = true;
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  setRating(getStarFromPointer(e.clientX));
+                }}
+                onPointerMove={(e) => {
+                  if (!isDraggingStarsRef.current) return;
+                  setRating(getStarFromPointer(e.clientX));
+                }}
+                onPointerUp={() => {
+                  isDraggingStarsRef.current = false;
+                }}
+                onPointerCancel={() => {
+                  isDraggingStarsRef.current = false;
+                }}
+              >
+                <div ref={starsOnlyRef} style={{ display: "inline-flex", gap: 4 }}>
+                  {[1, 2, 3, 4, 5].map((n) => {
+                    const full = (rating ?? 0) >= n * 2;
+                    const half = !full && (rating ?? 0) >= n * 2 - 1;
+                    return (
+                      <span
+                        key={n}
+                        style={{
+                          position: "relative",
+                          display: "inline-flex",
+                          pointerEvents: "none",
+                        }}
+                      >
+                        <Star size={28} fill="none" stroke="var(--border)" strokeWidth={1.5} />
+                        {(full || half) && (
+                          <span
+                            style={{
+                              position: "absolute",
+                              left: 0,
+                              top: 0,
+                              overflow: "hidden",
+                              width: full ? "100%" : "50%",
+                              height: "100%",
+                              display: "block",
+                            }}
+                          >
+                            <Star size={28} fill="#f59e0b" stroke="#f59e0b" strokeWidth={1.5} />
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+                <span
+                  style={{ fontSize: 13, color: "var(--text-muted)", marginLeft: 4, minWidth: 40 }}
+                >
+                  {rating != null
+                    ? `${(rating / 2).toFixed(rating % 2 === 0 ? 0 : 1)}/5`
+                    : "未設定"}
+                </span>
+              </div>
+            </div>
+
             {/* 補足情報（アコーディオン） */}
             <div>
               <button
@@ -1271,11 +1452,11 @@ export function PinDetailSheet({
                   padding: "4px 0",
                   cursor: "pointer",
                   color: "var(--text-secondary)",
-                  fontSize: 14,
+                  fontSize: 15,
                 }}
               >
                 <span>補足情報</span>
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
                   {isOtherInfoOpen ? "▲" : "▼"}
                 </span>
               </button>
@@ -1285,7 +1466,7 @@ export function PinDetailSheet({
                   <div>
                     <label
                       style={{
-                        fontSize: 14,
+                        fontSize: 15,
                         color: "var(--text-secondary)",
                         display: "block",
                         marginBottom: 4,
@@ -1302,7 +1483,7 @@ export function PinDetailSheet({
                         padding: "10px 12px",
                         borderRadius: 8,
                         border: "2px solid var(--border)",
-                        fontSize: 14,
+                        fontSize: 15,
                         outline: "none",
                         boxSizing: "border-box",
                         background: "var(--input-bg)",
@@ -1314,7 +1495,7 @@ export function PinDetailSheet({
                   <div>
                     <label
                       style={{
-                        fontSize: 14,
+                        fontSize: 15,
                         color: "var(--text-secondary)",
                         display: "block",
                         marginBottom: 4,
@@ -1333,7 +1514,7 @@ export function PinDetailSheet({
                           padding: "10px 12px",
                           borderRadius: 8,
                           border: "2px solid var(--border)",
-                          fontSize: 14,
+                          fontSize: 15,
                           outline: "none",
                           boxSizing: "border-box",
                           background: "var(--input-bg)",
@@ -1366,7 +1547,7 @@ export function PinDetailSheet({
                   <div>
                     <label
                       style={{
-                        fontSize: 14,
+                        fontSize: 15,
                         color: "var(--text-secondary)",
                         display: "block",
                         marginBottom: 4,
@@ -1385,7 +1566,7 @@ export function PinDetailSheet({
                           padding: "10px 12px",
                           borderRadius: 8,
                           border: "2px solid var(--border)",
-                          fontSize: 14,
+                          fontSize: 15,
                           outline: "none",
                           boxSizing: "border-box",
                           background: "var(--input-bg)",
@@ -1425,7 +1606,7 @@ export function PinDetailSheet({
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <Lock size={14} color="var(--text-secondary)" />
-                      <span style={{ fontSize: 14, color: "var(--text-primary)" }}>
+                      <span style={{ fontSize: 15, color: "var(--text-primary)" }}>
                         写真のダウンロードを許可
                       </span>
                     </div>
@@ -1460,10 +1641,21 @@ export function PinDetailSheet({
                   {/* 記録情報 */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <InfoRow label="作成日時" value={pin.createdAt.toLocaleString("ja-JP")} />
-                    <InfoRow
-                      label="座標"
-                      value={`${pin.coordinates.lat.toFixed(5)}, ${pin.coordinates.lng.toFixed(5)}`}
-                    />
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "2px 0",
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: "var(--text-muted)", flexShrink: 0 }}>
+                        座標
+                      </span>
+                      <span style={{ fontSize: 14, color: "var(--text-primary)" }}>
+                        {pin.coordinates.lat.toFixed(5)}, {pin.coordinates.lng.toFixed(5)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1487,7 +1679,7 @@ export function PinDetailSheet({
                 border: "none",
                 borderRadius: 10,
                 padding: "12px 0",
-                fontSize: 14,
+                fontSize: 15,
                 cursor: "pointer",
                 color: "var(--text-primary)",
               }}
@@ -1503,7 +1695,7 @@ export function PinDetailSheet({
                 border: "none",
                 borderRadius: 10,
                 padding: "12px 0",
-                fontSize: 15,
+                fontSize: 16,
                 fontWeight: 700,
                 cursor: isNew || isDirty ? "pointer" : "default",
                 color: isNew || isDirty ? "#fff" : "var(--text-muted)",
@@ -1707,7 +1899,7 @@ export function PinDetailSheet({
                     right: 0,
                     textAlign: "center",
                     color: "rgba(255,255,255,0.8)",
-                    fontSize: 13,
+                    fontSize: 14,
                     pointerEvents: "none",
                   }}
                 >
@@ -1722,7 +1914,7 @@ export function PinDetailSheet({
                     left: 16,
                     right: 16,
                     color: "rgba(255,255,255,0.75)",
-                    fontSize: 11,
+                    fontSize: 12,
                     display: "flex",
                     flexDirection: "column",
                     gap: 2,
@@ -1732,7 +1924,7 @@ export function PinDetailSheet({
                   {lbComment && (
                     <span
                       style={{
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: 500,
                         color: "rgba(255,255,255,0.95)",
                         marginBottom: lbExif ? 4 : 0,
@@ -1857,7 +2049,7 @@ export function PinDetailSheet({
               <p
                 style={{
                   margin: "0 0 20px",
-                  fontSize: 14,
+                  fontSize: 15,
                   color: "var(--text-secondary)",
                   lineHeight: 1.6,
                 }}
@@ -1873,7 +2065,7 @@ export function PinDetailSheet({
                     borderRadius: 8,
                     background: "var(--bg-primary)",
                     color: "var(--text-secondary)",
-                    fontSize: 14,
+                    fontSize: 15,
                     cursor: "pointer",
                   }}
                 >
@@ -1890,7 +2082,7 @@ export function PinDetailSheet({
                     borderRadius: 8,
                     background: "#ef4444",
                     color: "#fff",
-                    fontSize: 14,
+                    fontSize: 15,
                     fontWeight: 600,
                     cursor: "pointer",
                   }}
@@ -1899,6 +2091,28 @@ export function PinDetailSheet({
                 </button>
               </div>
             </div>
+          </div>,
+          document.body
+        )}
+      {copyToast &&
+        createPortal(
+          <div
+            style={{
+              position: "fixed",
+              bottom: 80,
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 10001,
+              background: "rgba(0,0,0,0.75)",
+              color: "#fff",
+              padding: "8px 20px",
+              borderRadius: 20,
+              fontSize: 14,
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            リンクをコピーしました
           </div>,
           document.body
         )}
@@ -1914,8 +2128,8 @@ function formatShutter(v: number): string {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</span>
-      <span style={{ fontSize: 13, color: "var(--text-primary)" }}>{value}</span>
+      <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{label}</span>
+      <span style={{ fontSize: 14, color: "var(--text-primary)" }}>{value}</span>
     </div>
   );
 }

@@ -9,7 +9,6 @@ import {
   Map as MapIcon,
   Shield,
   Globe,
-  ArrowUpDown,
   Sun,
   RefreshCw,
   Newspaper,
@@ -38,8 +37,6 @@ interface Props {
   onImportComplete: () => void;
   trashRetentionDays: number;
   onTrashRetentionChange: (days: number) => void;
-  sortOrder: "date" | "title";
-  onSortOrderChange: (v: "date" | "title") => void;
   autoNightMode: boolean;
   onAutoNightModeChange: (v: boolean) => void;
   nightStart: string;
@@ -71,8 +68,6 @@ export function SettingsSheet({
   onImportComplete,
   trashRetentionDays,
   onTrashRetentionChange,
-  sortOrder,
-  onSortOrderChange,
   autoNightMode,
   onAutoNightModeChange,
   nightStart,
@@ -495,7 +490,7 @@ export function SettingsSheet({
           {/* クラウド同期セクション */}
           <p
             style={{
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 700,
               color: "var(--text-muted)",
               textTransform: "uppercase",
@@ -539,7 +534,7 @@ export function SettingsSheet({
               }}
             >
               <AlertTriangle size={16} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
-              <div style={{ flex: 1, fontSize: 13, color: "#92400e", lineHeight: 1.5 }}>
+              <div style={{ flex: 1, fontSize: 14, color: "#92400e", lineHeight: 1.5 }}>
                 バックアップから30日以上経過しています。大切なデータを守るためにエクスポートを実行してください。
               </div>
               <button
@@ -624,7 +619,7 @@ export function SettingsSheet({
 
           <div
             style={{
-              fontSize: 12,
+              fontSize: 13,
               color: "var(--text-muted)",
               marginBottom: 8,
             }}
@@ -684,10 +679,10 @@ export function SettingsSheet({
               <Sun size={18} />
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>
                 昼夜自動切り替え
               </div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
                 時刻に応じてライト/ダークマップを自動切替
               </div>
             </div>
@@ -740,7 +735,7 @@ export function SettingsSheet({
                   padding: "8px 0 8px 30px",
                 }}
               >
-                <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>
+                <div style={{ flex: 1, fontSize: 14, color: "var(--text-secondary)" }}>
                   夜間開始
                 </div>
                 <input
@@ -758,7 +753,7 @@ export function SettingsSheet({
                   padding: "8px 0 0 30px",
                 }}
               >
-                <div style={{ flex: 1, fontSize: 13, color: "var(--text-secondary)" }}>
+                <div style={{ flex: 1, fontSize: 14, color: "var(--text-secondary)" }}>
                   夜間終了
                 </div>
                 <input
@@ -770,26 +765,6 @@ export function SettingsSheet({
               </div>
             </div>
           )}
-
-          <div style={{ marginTop: 20 }} />
-
-          {/* 一覧設定 */}
-          <SectionTitle label="一覧" />
-
-          <SettingRow
-            icon={<ArrowUpDown size={18} />}
-            label="ソート順"
-            description="ピン一覧の並び順"
-          >
-            <select
-              value={sortOrder}
-              onChange={(e) => onSortOrderChange(e.target.value as "date" | "title")}
-              style={selectStyle}
-            >
-              <option value="date">日付順</option>
-              <option value="title">タイトル順</option>
-            </select>
-          </SettingRow>
 
           <div style={{ marginTop: 20 }} />
 
@@ -871,7 +846,7 @@ export function SettingsSheet({
                 padding: "6px 10px",
                 borderRadius: 8,
                 border: "1px solid var(--border)",
-                fontSize: 14,
+                fontSize: 15,
                 outline: "none",
                 cursor: "pointer",
                 background: "var(--input-bg)",
@@ -946,7 +921,7 @@ export function SettingsSheet({
             <p
               style={{
                 margin: "0 0 20px",
-                fontSize: 14,
+                fontSize: 15,
                 color: "var(--text-secondary)",
                 lineHeight: 1.6,
               }}
@@ -964,7 +939,7 @@ export function SettingsSheet({
                   borderRadius: 8,
                   background: "var(--bg-primary)",
                   color: "var(--text-secondary)",
-                  fontSize: 14,
+                  fontSize: 15,
                   cursor: "pointer",
                 }}
               >
@@ -981,7 +956,7 @@ export function SettingsSheet({
                   borderRadius: 8,
                   background: "#6366f1",
                   color: "#fff",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
@@ -1038,7 +1013,7 @@ export function SettingsSheet({
             <p
               style={{
                 margin: "0 0 20px",
-                fontSize: 14,
+                fontSize: 15,
                 color: "var(--text-secondary)",
                 lineHeight: 1.6,
               }}
@@ -1054,7 +1029,7 @@ export function SettingsSheet({
                   borderRadius: 8,
                   background: "#6366f1",
                   color: "#fff",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
@@ -1095,7 +1070,7 @@ const selectStyle: React.CSSProperties = {
   padding: "6px 10px",
   borderRadius: 8,
   border: "1px solid var(--border)",
-  fontSize: 14,
+  fontSize: 15,
   outline: "none",
   cursor: "pointer",
   background: "var(--input-bg)",
@@ -1109,7 +1084,7 @@ function btnStyle(bg: string): React.CSSProperties {
     border: "none",
     borderRadius: 8,
     padding: "7px 14px",
-    fontSize: 13,
+    fontSize: 14,
     cursor: "pointer",
     whiteSpace: "nowrap",
   };
@@ -1119,7 +1094,7 @@ function SectionTitle({ label }: { label: string }) {
   return (
     <p
       style={{
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: 700,
         color: "var(--text-muted)",
         textTransform: "uppercase",
@@ -1155,8 +1130,8 @@ function SettingRow({
     >
       <span style={{ color: "var(--text-secondary)", flexShrink: 0 }}>{icon}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{label}</div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{description}</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>{label}</div>
+        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{description}</div>
       </div>
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>{children}</div>
     </div>
@@ -1185,12 +1160,12 @@ function ComingSoonRow({
     >
       <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>{icon}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-secondary)" }}>{label}</div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{description}</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-secondary)" }}>{label}</div>
+        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{description}</div>
       </div>
       <span
         style={{
-          fontSize: 11,
+          fontSize: 12,
           background: "var(--pill-bg)",
           color: "var(--text-muted)",
           borderRadius: 10,

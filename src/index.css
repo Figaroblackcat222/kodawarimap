@@ -84,3 +84,14 @@ body {
   top: 48px !important;
   z-index: 11 !important;
 }
+
+/* iOS Safari のオートズーム防止（font-size < 16px のフォームでズームが発生する） */
+input[type="text"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="url"],
+input[type="email"],
+input[type="search"],
+textarea {
+  font-size: 16px;
+}

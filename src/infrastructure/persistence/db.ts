@@ -22,6 +22,7 @@ interface PinRecord {
   iso?: number;
   createdAt: Date;
   reaction?: string;
+  rating?: number;
   thumbnailPhotoId?: string;
   shoppingItemsJson?: string;
   deletedAt?: Date;
@@ -160,6 +161,12 @@ class KodawarimapDB extends Dexie {
           });
       });
     this.version(13).stores({
+      pins: "id, createdAt, deletedAt, categoryId, hlcPhysical",
+      photos: "id, pinId, createdAt, hlcPhysical",
+      sync_queue: "id, recordId, nextAttemptAt",
+      key_store: "id",
+    });
+    this.version(14).stores({
       pins: "id, createdAt, deletedAt, categoryId, hlcPhysical",
       photos: "id, pinId, createdAt, hlcPhysical",
       sync_queue: "id, recordId, nextAttemptAt",
