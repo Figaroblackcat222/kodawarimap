@@ -140,11 +140,11 @@ export function SettingsSheet({
       if (reg) {
         try {
           // サーバーに新しいSWバージョンを確認しに行く
-          const updatedReg = await reg.update();
+          await reg.update();
           // インストール中のSWがあれば waiting 状態になるまで最大3秒待機
-          if (updatedReg.installing) {
+          if (reg.installing) {
             await new Promise<void>((resolve) => {
-              const sw = updatedReg.installing!;
+              const sw = reg.installing!;
               const timeout = setTimeout(resolve, 3000);
               sw.addEventListener("statechange", () => {
                 if (sw.state === "installed" || sw.state === "redundant") {
