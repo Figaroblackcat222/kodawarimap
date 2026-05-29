@@ -11,12 +11,12 @@ interface AdminPoint {
 let cache: AdminPoint[] | null = null;
 
 async function loadData(): Promise<AdminPoint[]> {
-  if (cache) return cache;
+  if (cache !== null) return cache;
   try {
-    const res = await fetch(`${R2_BASE}/admin/municipalities.geojson`);
+    const res = await fetch(`${R2_BASE}/municipalities.geojson`);
     if (!res.ok) {
-      cache = [];
-      return cache;
+      console.error(`[admin-geocoder] fetch failed: ${res.status} ${res.url}`);
+      return [];
     }
     const fc = (await res.json()) as FeatureCollection;
     cache = fc.features
@@ -27,10 +27,11 @@ async function loadData(): Promise<AdminPoint[]> {
         lat: f.geometry.coordinates[1],
       }))
       .filter((p) => p.name.length > 0);
-  } catch {
-    cache = [];
+    console.log(`[admin-geocoder] loaded ${cache.length} points`);
+  } catch (e) {
+    console.error("[admin-geocoder] fetch error:", e);
   }
-  return cache;
+  return cache ?? [];
 }
 
 /**

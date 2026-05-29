@@ -29,7 +29,7 @@ import { CurrentLocationButton } from "./current-location-button";
 import { SettingsSheet } from "./settings-sheet";
 import { MessageTicker } from "./message-ticker";
 import { GeocoderSearch } from "./geocoder-search";
-import { Settings, RotateCw } from "lucide-react";
+import { Settings } from "lucide-react";
 import { useSync } from "@presentation/hooks/use-sync";
 import { SyncSetupSheet } from "./sync-setup-sheet";
 import { SyncStatusIndicator } from "./sync-status-indicator";
@@ -324,6 +324,12 @@ function createMarker(
   el.addEventListener("mouseleave", () => {
     popup.remove();
   });
+
+  const origRemove = marker.remove.bind(marker);
+  marker.remove = function () {
+    popup.remove();
+    return origRemove();
+  };
 
   return marker;
 }
@@ -693,8 +699,14 @@ export function MapView() {
       const map = mapRef.current;
       const placeName = map ? getPlaceName(map, lng, lat) : null;
       const adminName = await findAdminName(lng, lat);
-      const location = adminName ? (placeName ? `${adminName}${placeName}` : adminName) : placeName;
-      const title = placeName ?? adminName ?? `ピン ${pins.length + 1}`;
+      const uniquePlace =
+        placeName && adminName && adminName.includes(placeName) ? null : placeName;
+      const location = adminName
+        ? uniquePlace
+          ? `${adminName}${uniquePlace}`
+          : adminName
+        : placeName;
+      const title = location ?? `ピン ${pins.length + 1}`;
       let pin = await addPin(repo, { lng, lat }, title, createHlc(getNodeId()), category.id);
       if (location) {
         pin = { ...pin, location };
@@ -855,9 +867,13 @@ export function MapView() {
     const map = mapRef.current;
     const placeName = map ? getPlaceName(map, lng, lat) : null;
     const adminName = await findAdminName(lng, lat);
-    const location = adminName ? (placeName ? `${adminName}${placeName}` : adminName) : placeName;
-    const resolvedTitle =
-      titleIsFile && (placeName ?? adminName) ? (placeName ?? adminName)! : title;
+    const uniquePlace = placeName && adminName && adminName.includes(placeName) ? null : placeName;
+    const location = adminName
+      ? uniquePlace
+        ? `${adminName}${uniquePlace}`
+        : adminName
+      : placeName;
+    const resolvedTitle = titleIsFile && location ? location : title;
     try {
       let pin = await addPin(
         repo,
@@ -1270,36 +1286,6 @@ export function MapView() {
       {authService.isLoggedIn() && (
         <SyncStatusIndicator syncState={syncState} onRetry={triggerSync} />
       )}
-
-      {/* リロードボタン */}
-      <button
-        onClick={async () => {
-          if ("serviceWorker" in navigator) {
-            const reg = await navigator.serviceWorker.getRegistration().catch(() => undefined);
-            if (reg?.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
-          }
-          window.location.reload();
-        }}
-        style={{
-          position: "absolute",
-          top: 48,
-          right: 52,
-          zIndex: 10,
-          background: "var(--bg-primary)",
-          border: "none",
-          borderRadius: 8,
-          width: 36,
-          height: 36,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          boxShadow: "0 2px 8px var(--shadow)",
-        }}
-        title="リロード"
-      >
-        <RotateCw size={18} color="var(--text-secondary)" />
-      </button>
 
       {/* 設定ボタン */}
       <button

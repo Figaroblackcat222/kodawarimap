@@ -441,7 +441,7 @@ export function PinListSheet({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              padding: "4px 16px 8px",
+              padding: "6px 16px 10px",
               fontSize: 14,
               color: "var(--text-secondary)",
             }}
@@ -454,20 +454,20 @@ export function PinListSheet({
                   left: 8,
                   display: "flex",
                   border: "1px solid var(--border)",
-                  borderRadius: 12,
+                  borderRadius: 14,
                   overflow: "hidden",
-                  fontSize: 12,
+                  fontSize: 14,
                 }}
               >
                 <button
                   onClick={() => onListScopeChange("all")}
                   style={{
-                    padding: "2px 8px",
+                    padding: "5px 12px",
                     border: "none",
                     background: listScope === "all" ? "#3b82f6" : "var(--bg-primary)",
                     color: listScope === "all" ? "#fff" : "var(--text-secondary)",
                     cursor: "pointer",
-                    fontSize: 12,
+                    fontSize: 14,
                   }}
                 >
                   全件
@@ -475,12 +475,12 @@ export function PinListSheet({
                 <button
                   onClick={() => onListScopeChange("visible")}
                   style={{
-                    padding: "2px 8px",
+                    padding: "5px 12px",
                     border: "none",
                     background: listScope === "visible" ? "#3b82f6" : "var(--bg-primary)",
                     color: listScope === "visible" ? "#fff" : "var(--text-secondary)",
                     cursor: "pointer",
-                    fontSize: 12,
+                    fontSize: 14,
                   }}
                 >
                   表示範囲
@@ -500,14 +500,14 @@ export function PinListSheet({
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 3,
-                    padding: "2px 8px",
+                    gap: 4,
+                    padding: "5px 12px",
                     border: `1px solid ${sortOrder !== "date" ? "#3b82f6" : "var(--border)"}`,
-                    borderRadius: 12,
+                    borderRadius: 14,
                     background: sortOrder !== "date" ? "#3b82f6" : "var(--bg-primary)",
                     color: sortOrder !== "date" ? "#fff" : "var(--text-secondary)",
                     cursor: "pointer",
-                    fontSize: 12,
+                    fontSize: 14,
                     whiteSpace: "nowrap",
                   }}
                 >
@@ -516,7 +516,7 @@ export function PinListSheet({
                     : sortOrder === "title"
                       ? "タイトル"
                       : "おすすめ"}
-                  <ChevronDown size={10} />
+                  <ChevronDown size={13} />
                 </button>
                 {sortDropdownOpen && (
                   <>

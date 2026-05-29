@@ -85,7 +85,7 @@ export function SettingsSheet({
 }: Props) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [mapUpdateStatus, setMapUpdateStatus] = useState<"idle" | "checking">("idle");
+  const [mapUpdateStatus, setMapUpdateStatus] = useState<"idle" | "checking" | "done">("idle");
   const [tickerEnabled, setTickerEnabled] = useState(
     () => localStorage.getItem(TICKER_ENABLED_KEY) !== "false"
   );
@@ -134,12 +134,41 @@ export function SettingsSheet({
       if (key?.startsWith("kodawarimap:poi-tile:")) keysToDelete.push(key);
     }
     keysToDelete.forEach((k) => localStorage.removeItem(k));
-    // 待機中のSWがあれば有効化してからリロード
+
     if ("serviceWorker" in navigator) {
       const reg = await navigator.serviceWorker.getRegistration().catch(() => undefined);
-      if (reg?.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      if (reg) {
+        try {
+          // サーバーに新しいSWバージョンを確認しに行く
+          const updatedReg = await reg.update();
+          // インストール中のSWがあれば waiting 状態になるまで最大3秒待機
+          if (updatedReg.installing) {
+            await new Promise<void>((resolve) => {
+              const sw = updatedReg.installing!;
+              const timeout = setTimeout(resolve, 3000);
+              sw.addEventListener("statechange", () => {
+                if (sw.state === "installed" || sw.state === "redundant") {
+                  clearTimeout(timeout);
+                  resolve();
+                }
+              });
+            });
+          }
+          // waiting 状態のSWがあれば pwa-update-dialog に任せる（SKIP_WAITINGは送らない）
+          const freshReg = await navigator.serviceWorker.getRegistration().catch(() => undefined);
+          if (freshReg?.waiting) {
+            setMapUpdateStatus("idle");
+            return;
+          }
+        } catch {
+          // エラー時は無視して完了扱いに
+        }
+      }
     }
-    window.location.reload();
+
+    // 新バージョンなし: 設定画面に留まり「完了」を表示
+    setMapUpdateStatus("done");
+    setTimeout(() => setMapUpdateStatus("idle"), 3000);
   };
 
   const handleExportJson = async () => {
@@ -402,10 +431,14 @@ export function SettingsSheet({
           >
             <button
               onClick={handleMapUpdate}
-              disabled={mapUpdateStatus === "checking"}
-              style={btnStyle("#6366f1")}
+              disabled={mapUpdateStatus === "checking" || mapUpdateStatus === "done"}
+              style={btnStyle(mapUpdateStatus === "done" ? "#16a34a" : "#6366f1")}
             >
-              {mapUpdateStatus === "checking" ? "確認中…" : "更新する"}
+              {mapUpdateStatus === "checking"
+                ? "確認中…"
+                : mapUpdateStatus === "done"
+                  ? "完了 ✓"
+                  : "更新する"}
             </button>
           </SettingRow>
 
