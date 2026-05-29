@@ -1050,6 +1050,7 @@ export function MapView() {
         exif: updated.exif,
         allowPhotoDownload: updated.allowPhotoDownload,
         reaction: updated.reaction,
+        rating: updated.rating,
         thumbnailPhotoId: updated.thumbnailPhotoId,
         shoppingItems: updated.shoppingItems,
       });

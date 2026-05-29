@@ -27,6 +27,7 @@ interface PinPayload {
     videoUrl?: string;
     allowPhotoDownload?: boolean;
     reaction?: string;
+    rating?: number;
     thumbnailPhotoId?: string;
     shoppingItems?: Pin["shoppingItems"];
     exif?: {
@@ -61,6 +62,7 @@ function pinToPayload(pin: Pin): PinPayload {
       videoUrl: pin.videoUrl,
       allowPhotoDownload: pin.allowPhotoDownload,
       reaction: pin.reaction,
+      rating: pin.rating,
       thumbnailPhotoId: pin.thumbnailPhotoId,
       shoppingItems: pin.shoppingItems,
       exif: pin.exif

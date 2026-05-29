@@ -33,8 +33,8 @@ src/
 │   │                    # SyncQueueRepository（enqueue/peekDue/markRetry/remove/coalesce）
 │   └── use-cases/       # add-pin, update-pin（title/category/comment/url/videoUrl/exif/reaction/rating/tag/location/thumbnailPhotoId/shoppingItems）,
 │                        # soft-delete-pin, restore-pin, hard-delete-pin, add-photo, delete-photo,
-│                        # pull-sync（サーバー→IndexedDB HLC LWW マージ）,
-│                        # push-sync（IndexedDB→サーバー暗号化 + SyncQueue失敗時enqueue・写真pushも担当）,
+│                        # pull-sync（サーバー→IndexedDB HLC LWW マージ。PinPayload に rating フィールド含む）,
+│                        # push-sync（IndexedDB→サーバー暗号化 + SyncQueue失敗時enqueue・写真pushも担当。PinPayload に rating フィールド含む）,
 │                        # pull-photo-sync（全ピン分のR2写真を一括ダウンロード・sync時に自動実行。encryptedMeta/metaIvを復号してshoppingItemIdを復元。extractExif? callback で復号blob からEXIF再抽出して保存）
 ├── infrastructure/
 │   ├── persistence/     # db.ts（Dexie v4, schema v14: v13にrating列追加（PinRecord・インデックスなし）。v13: key_storeテーブル追加（CryptoKey永続化）。v12: hlcPhysical/hlcLogical/hlcNodeId/syncSchemaVersionをpins・photosに追加、sync_queueテーブル新規）,
@@ -79,7 +79,7 @@ src/
     │                    # pwa-update-dialog（新SW待機時にダイアログ表示・「後で」は1時間スキップ・タブ再オープン（ページロード）時はスヌーズ無視で即表示・visibilitychange+タイマーで再表示（スヌーズ尊重）・useRegisterSW使用）,
     │                    # message-ticker（地図上部ガイドメッセージ・height:40px・font-size:14px・左端に固定ラベル表示（【はじめに】【ヒント】）・静止3秒→左スクロール（1回）→onScrollEndで次メッセージのサイクル・静止中は左12px マージン付き・×で左端に折りたたみ（▶ボタン）・localStorage: ticker-enabled/ticker-collapsed・ピン選択中も含めて常時サイクル（selectedPin 時の固定メッセージなし）），
     │                    # geocoder-search（Nominatim地名検索・収縮/展開ボタン（top:48 right:52）・展開時 top:48 left:50 right:52（ズームコントロール・設定ボタン非重複）・debounce 400ms・flyTo・© OpenStreetMap contributors表示）,
-    │                    # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ・handleCreateCopyFromPin: ショッピングピンのリストをコピーして同座標に新ピン作成・再訪時にProvisionalPinDataへshoppingItems継承（チェックリセット）・リロードボタン削除済み（設定画面の「地図情報更新」で代替）・handleDetailSaveにrating含む全フィールドをupdatePinへ渡す（rating欠落バグ修正済み）・ピン作成時（ダブルクリック・仮置き確定の両経路）にfindAdminNameで県市名を取得しPMTiles地区名と結合して location フィールドに設定（例:「東京都渋谷区恵比寿」・PMTiles地区名がadminNameに既に含まれる場合は重複しない（例:「東京都三鷹市」））・タイトルもlocationと同じ値を自動設定・getPhotoInfoがthumbnailPhotoIdを優先しshoppingItemId写真を除外してポップアップサムネイルを構築・createMarkerでmarker.remove()をオーバーライドしpopup.remove()を確実に実行（即削除時の吹き出し残留バグ修正済み））
+    │                    # map-view（R2配置POI GeoJSONレイヤー: カテゴリー別絵文字アイコン・ピン作成時にz8タイル単位で取得・カテゴリー切替でフィルタリング・styledata再セットアップ・handleCreateCopyFromPin: ショッピングピンのリストをコピーして同座標に新ピン作成・再訪時にProvisionalPinDataへshoppingItems継承（チェックリセット）・リロードボタン削除済み（設定画面の「地図情報更新」で代替）・handleDetailSaveにrating含む全フィールドをupdatePinへ渡す（rating欠落バグ修正済み）・ratingはpush/pull-syncのPinPayloadにも含めて同期（sync時にratingが消えるバグ修正済み：push後のpullでHLC同値→上書きによりratingが失われていた）・ピン作成時（ダブルクリック・仮置き確定の両経路）にfindAdminNameで県市名を取得しPMTiles地区名と結合して location フィールドに設定（例:「東京都渋谷区恵比寿」・PMTiles地区名がadminNameに既に含まれる場合は重複しない（例:「東京都三鷹市」））・タイトルもlocationと同じ値を自動設定・getPhotoInfoがthumbnailPhotoIdを優先しshoppingItemId写真を除外してポップアップサムネイルを構築・createMarkerでmarker.remove()をオーバーライドしpopup.remove()を確実に実行（即削除時の吹き出し残留バグ修正済み））
 workers/
 ├── src/
 │   ├── index.ts         # ルーティング + scheduled（30日tombstone削除・refresh_token期限切れ削除）
