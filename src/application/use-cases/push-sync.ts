@@ -299,10 +299,14 @@ export async function pushSync(
     }
   }
 
-  // 4. 未同期写真を push（photoRepo が渡されている場合のみ）
+  // 4. 未同期写真を push（photoRepo が渡されている場合のみ・グループピンの写真は除外）
   if (photoRepo) {
+    // グループピンの写真は push-group-photo-sync で処理するため除外
+    const allPins = await pinRepo.findAll();
+    const groupPinIds = new Set(allPins.filter((p) => p.space?.kind === "group").map((p) => p.id));
+
     const unsyncedPhotos = await photoRepo.findUnsyncedPhotos();
-    for (const photo of unsyncedPhotos) {
+    for (const photo of unsyncedPhotos.filter((p) => !groupPinIds.has(p.pinId))) {
       try {
         const metaPayload = photoToMetaPayload(photo);
         const metaPlaintext = JSON.stringify(metaPayload);

@@ -27,6 +27,7 @@ import { PinDetailSheet } from "./pin-detail-sheet";
 import { ClusterSheet } from "./cluster-sheet";
 import { CurrentLocationButton } from "./current-location-button";
 import { SettingsSheet } from "./settings-sheet";
+import { FamilyGroupSheet } from "./family-group-sheet";
 import { MessageTicker } from "./message-ticker";
 import { GeocoderSearch } from "./geocoder-search";
 import { Settings } from "lucide-react";
@@ -35,9 +36,14 @@ import { SyncSetupSheet } from "./sync-setup-sheet";
 import { SyncStatusIndicator } from "./sync-status-indicator";
 import { authService } from "@infrastructure/sync/auth-service";
 import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
+import { cloudflareGroupSyncRepository } from "@infrastructure/sync/cloudflare-group-sync-repository";
+import { cloudflarekeySyncRepository } from "@infrastructure/sync/cloudflare-key-sync-repository";
 import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
+import { webKeyManagementService } from "@infrastructure/sync/web-key-management-service";
 import { db } from "@infrastructure/persistence/db";
 import { findAdminName } from "@infrastructure/geocoder/admin-geocoder";
+import { sharePinToGroup } from "@application/use-cases/share-pin-to-group";
+import { unsharePin } from "@application/use-cases/unshare-pin";
 
 const repo = dexiePinRepository;
 
@@ -503,9 +509,14 @@ export function MapView() {
 
   // 同期
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null);
+  const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
   const [, setIsLoadingKey] = useState(true);
   const [showSyncSetup, setShowSyncSetup] = useState(false);
+  const [showFamilyGroups, setShowFamilyGroups] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+  const [availableGroups, setAvailableGroups] = useState<
+    Array<{ groupId: string; groupName: string }>
+  >([]);
 
   const tagKeywords = useMemo(() => {
     const set = new Set<string>();
@@ -516,7 +527,7 @@ export function MapView() {
   }, [pins]);
 
   // 同期フック
-  const { syncState, triggerSync } = useSync({ encryptionKey });
+  const { syncState, triggerSync } = useSync({ encryptionKey, privateKey });
 
   // 保存後デバウンス同期（3秒後）+ 定期ポーリング（30分ごと）
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -544,9 +555,36 @@ export function MapView() {
           } else {
             setShowSyncSetup(true);
           }
+
+          // RSA 秘密鍵（グループ機能用）
+          const pkRecord = await db.key_store.get("group-private-key");
+          if (pkRecord) setPrivateKey(pkRecord.key);
         }
       } finally {
         setIsLoadingKey(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 招待トークン URL (?invite=TOKEN) の処理
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("invite");
+    if (!token || !authService.isLoggedIn()) return;
+
+    (async () => {
+      try {
+        await cloudflareGroupSyncRepository.acceptInvite(token);
+        showMessage("招待を承認しました！グループオーナーが次回同期時にアクセスを付与します。");
+        // URL からトークンを除去
+        const url = new URL(window.location.href);
+        url.searchParams.delete("invite");
+        window.history.replaceState({}, "", url.toString());
+      } catch (e) {
+        showMessage(
+          "招待の承認に失敗しました: " + (e instanceof Error ? e.message : "不明なエラー")
+        );
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -627,7 +665,9 @@ export function MapView() {
 
     for (const [key, group] of groups) {
       const [lng, lat] = key.split(",").map(Number);
-      const color = categoryColor(group[0].categoryId);
+      // グループピン（家族スペース）は紫色で表示
+      const isGroupPin = group[0].space?.kind === "group";
+      const color = isGroupPin ? "#8b5cf6" : categoryColor(group[0].categoryId);
       if (group.length === 1) {
         const m = createMarker(map, group[0], color, setSelectedPin, setLongPressPin);
         markersRef.current.set(group[0].id, m);
@@ -1509,6 +1549,68 @@ export function MapView() {
           syncRepository={encryptionKey ? cloudflareSyncRepository : undefined}
           encryptionKey={encryptionKey ?? undefined}
           cryptoService={encryptionKey ? webCryptoService : undefined}
+          groupSyncRepository={cloudflareGroupSyncRepository}
+          groupKeyManagementService={webKeyManagementService}
+          getGroupKey={async (groupId) => {
+            const rec = await db.key_store.get(`group-key:${groupId}`);
+            return rec?.key ?? null;
+          }}
+          groups={availableGroups.length > 0 ? availableGroups : undefined}
+          onShareToGroup={
+            encryptionKey && privateKey
+              ? async (groupId) => {
+                  if (!selectedPin) return;
+                  const groupKeyRecord = await db.key_store.get(`group-key:${groupId}`);
+                  if (!groupKeyRecord) {
+                    showMessage("グループ鍵が見つかりません。同期してから再試行してください。");
+                    return;
+                  }
+                  await sharePinToGroup(
+                    selectedPin,
+                    groupId,
+                    1,
+                    groupKeyRecord.key,
+                    getNodeId(),
+                    webKeyManagementService,
+                    cloudflareGroupSyncRepository,
+                    repo,
+                    cloudflareSyncRepository,
+                    encryptionKey,
+                    webCryptoService
+                  );
+                  await refreshLists();
+                  showMessage("家族スペースへ共有しました。");
+                }
+              : undefined
+          }
+          onUnshare={
+            encryptionKey && selectedPin?.space?.kind === "group"
+              ? async () => {
+                  if (!selectedPin || selectedPin.space?.kind !== "group") return;
+                  const gid = selectedPin.space.groupId;
+                  const groupKeyRecord = await db.key_store.get(`group-key:${gid}`);
+                  if (!groupKeyRecord) {
+                    showMessage("グループ鍵が見つかりません。同期してから再試行してください。");
+                    return;
+                  }
+                  await unsharePin(
+                    selectedPin,
+                    gid,
+                    1,
+                    groupKeyRecord.key,
+                    getNodeId(),
+                    webKeyManagementService,
+                    cloudflareGroupSyncRepository,
+                    repo,
+                    cloudflareSyncRepository,
+                    encryptionKey,
+                    webCryptoService
+                  );
+                  await refreshLists();
+                  showMessage("個人地図に戻しました。");
+                }
+              : undefined
+          }
         />
       )}
       {clusterPins && (
@@ -1548,9 +1650,12 @@ export function MapView() {
           hasSyncKey={!!encryptionKey}
           onLogout={async () => {
             await db.key_store.delete("encryption-key");
+            await db.key_store.delete("group-private-key");
             setEncryptionKey(null);
+            setPrivateKey(null);
           }}
           syncRepository={encryptionKey ? cloudflareSyncRepository : undefined}
+          onOpenFamilyGroups={encryptionKey ? () => setShowFamilyGroups(true) : undefined}
         />
       )}
       <SyncSetupSheet
@@ -1562,6 +1667,28 @@ export function MapView() {
           setShowSyncSetup(false);
         }}
       />
+      {showFamilyGroups && encryptionKey && (
+        <FamilyGroupSheet
+          onClose={() => setShowFamilyGroups(false)}
+          keyManagementService={webKeyManagementService}
+          groupSyncRepository={cloudflareGroupSyncRepository}
+          keySyncRepository={cloudflarekeySyncRepository}
+          encryptionKey={encryptionKey}
+          getPrivateKey={async () => {
+            const rec = await db.key_store.get("group-private-key");
+            return rec?.key ?? null;
+          }}
+          saveGroupKey={async (groupId, key) => {
+            await db.key_store.put({ id: `group-key:${groupId}`, key, createdAt: new Date() });
+          }}
+          getGroupKey={async (groupId) => {
+            const rec = await db.key_store.get(`group-key:${groupId}`);
+            return rec?.key ?? null;
+          }}
+          pinRepository={repo}
+          onGroupsLoaded={(groups) => setAvailableGroups(groups)}
+        />
+      )}
       {poiLoadingCount > 0 && (
         <div
           style={{

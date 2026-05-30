@@ -5,6 +5,10 @@ import { handlePins } from "./routes/pins";
 import { handlePhotos } from "./routes/photos";
 import { handleAdmin } from "./routes/admin";
 import { handleWebAuthn } from "./routes/webauthn";
+import { handleKeys } from "./routes/keys";
+import { handleGroups } from "./routes/groups";
+import { handleGroupPins } from "./routes/group-pins";
+import { handleGroupPhotos } from "./routes/group-photos";
 
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -37,6 +41,24 @@ export default {
       return handleWebAuthn(request, env, path);
     }
 
+    if (path.startsWith("/api/keys")) {
+      return handleKeys(request, env, path);
+    }
+
+    if (path.startsWith("/api/groups")) {
+      // /api/groups/:id/pins/* は group-pins ハンドラに委譲
+      const groupPinsMatch = path.match(/^\/api\/groups\/([^/]+)(\/pins.*)$/);
+      if (groupPinsMatch) {
+        return handleGroupPins(request, env, groupPinsMatch[1]!, groupPinsMatch[2]!);
+      }
+      // /api/groups/:id/photos/* は group-photos ハンドラに委譲
+      const groupPhotosMatch = path.match(/^\/api\/groups\/([^/]+)(\/photos.*)$/);
+      if (groupPhotosMatch) {
+        return handleGroupPhotos(request, env, groupPhotosMatch[1]!, groupPhotosMatch[2]!);
+      }
+      return handleGroups(request, env, path);
+    }
+
     const origin = request.headers.get("Origin");
     return new Response(JSON.stringify({ error: "Not Found" }), {
       status: 404,
@@ -65,11 +87,24 @@ export default {
 
     for (const row of expiredPhotos.results ?? []) {
       const r2Key = `photos/${row.user_id}/${row.id}.enc`;
-      await env.PHOTOS.delete(r2Key).catch(() => {
-        // R2 オブジェクトがなくても続行
-      });
+      await env.PHOTOS.delete(r2Key).catch(() => {});
       await env.DB.prepare(`DELETE FROM photos_sync WHERE id = ? AND user_id = ?`)
         .bind(row.id, row.user_id)
+        .run();
+    }
+
+    // 論理削除後30日以上経過した group_photos_sync レコードの物理削除
+    const expiredGroupPhotos = await env.DB.prepare(
+      `SELECT id, group_id FROM group_photos_sync WHERE is_deleted = 1 AND created_at < ?`
+    )
+      .bind(thirtyDaysAgo)
+      .all<{ id: string; group_id: string }>();
+
+    for (const row of expiredGroupPhotos.results ?? []) {
+      const r2Key = `group-photos/${row.group_id}/${row.id}.enc`;
+      await env.PHOTOS.delete(r2Key).catch(() => {});
+      await env.DB.prepare(`DELETE FROM group_photos_sync WHERE id = ? AND group_id = ?`)
+        .bind(row.id, row.group_id)
         .run();
     }
   },

@@ -3,18 +3,28 @@
  *
  * tabCoordinator.acquireSyncLead でリーダータブのみ同期を実行し、
  * 完了後に BroadcastChannel 経由で他タブに通知する。
+ *
+ * Phase 2: privateKey が渡された場合、個人同期後にグループ同期も実行する。
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { tabCoordinator } from "@infrastructure/sync/tab-coordinator";
 import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
+import { cloudflareGroupSyncRepository } from "@infrastructure/sync/cloudflare-group-sync-repository";
 import { dexiePinRepository } from "@infrastructure/persistence/dexie-pin-repository";
 import { dexiePhotoRepository } from "@infrastructure/persistence/dexie-photo-repository";
 import { dexieSyncQueueRepository } from "@infrastructure/persistence/dexie-sync-queue-repository";
 import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
+import { webKeyManagementService } from "@infrastructure/sync/web-key-management-service";
 import { pullSync } from "@application/use-cases/pull-sync";
 import { pullPhotoSync } from "@application/use-cases/pull-photo-sync";
 import { pushSync } from "@application/use-cases/push-sync";
+import { pullGroupSync } from "@application/use-cases/pull-group-sync";
+import { pushGroupSync } from "@application/use-cases/push-group-sync";
+import { pullGroupPhotoSync } from "@application/use-cases/pull-group-photo-sync";
+import { pushGroupPhotoSync } from "@application/use-cases/push-group-photo-sync";
+import { grantPendingMemberKeys } from "@application/use-cases/grant-pending-member-keys";
 import { authService } from "@infrastructure/sync/auth-service";
+import { db } from "@infrastructure/persistence/db";
 import { parseExif } from "@infrastructure/exif/exif-parser";
 import type { PhotoExif } from "@domain/entities/photo";
 
@@ -63,8 +73,24 @@ function saveLastHlc(hlc: { physical: number; logical: number }): void {
   localStorage.setItem(LS_LAST_HLC_LOGICAL, String(hlc.logical));
 }
 
+function loadGroupHlc(groupId: string): { physical: number; logical: number } {
+  const physical = Number(localStorage.getItem(`kdm:group-hlc-${groupId}-physical`) ?? "0");
+  const logical = Number(localStorage.getItem(`kdm:group-hlc-${groupId}-logical`) ?? "0");
+  return {
+    physical: isNaN(physical) ? 0 : physical,
+    logical: isNaN(logical) ? 0 : logical,
+  };
+}
+
+function saveGroupHlc(groupId: string, hlc: { physical: number; logical: number }): void {
+  localStorage.setItem(`kdm:group-hlc-${groupId}-physical`, String(hlc.physical));
+  localStorage.setItem(`kdm:group-hlc-${groupId}-logical`, String(hlc.logical));
+}
+
 interface UseSyncOptions {
   encryptionKey: CryptoKey | null;
+  /** RSA-OAEP 秘密鍵。グループ鍵の unwrap に使用。グループ機能未使用時は null */
+  privateKey?: CryptoKey | null;
 }
 
 interface UseSyncResult {
@@ -72,7 +98,7 @@ interface UseSyncResult {
   triggerSync: () => void;
 }
 
-export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
+export function useSync({ encryptionKey, privateKey }: UseSyncOptions): UseSyncResult {
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const isSyncingRef = useRef(false);
 
@@ -85,7 +111,6 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
       return;
     }
 
-    // Pro プランのみ同期を許可（クライアント側保険。サーバー側でも必ず検証する）
     if (authService.getPlan() !== "pro") {
       setSyncState("unauthenticated");
       return;
@@ -112,7 +137,6 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
           since
         );
 
-        // lastHlc を更新（pull で進んだ分）
         let currentHlc = pullResult.lastHlc;
         if (
           currentHlc.physical > since.physical ||
@@ -134,7 +158,7 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
           dexiePhotoRepository
         );
 
-        // Pull Photos: サーバーにあってローカルにない写真を一括ダウンロード
+        // Pull Photos
         await pullPhotoSync(
           cloudflareSyncRepository,
           dexiePinRepository,
@@ -144,7 +168,11 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
           extractExifFromBlob
         );
 
-        // 同期完了を他タブに通知
+        // グループ同期（privateKey がある場合のみ）
+        if (privateKey) {
+          await runGroupSync(privateKey);
+        }
+
         tabCoordinator.broadcastSyncComplete();
       });
 
@@ -165,7 +193,7 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
     } finally {
       isSyncingRef.current = false;
     }
-  }, [encryptionKey]);
+  }, [encryptionKey, privateKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // マウント時に同期を実行
   useEffect(() => {
@@ -185,13 +213,8 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
     return () => window.removeEventListener("online", handleOnline);
   }, [encryptionKey, syncState, runSync]);
 
-  // 他タブの同期完了通知を受けたら IndexedDB を再読込
-  // （現在は再読込のシグナルとして syncState を idle にリセット）
   useEffect(() => {
     const unsubscribe = tabCoordinator.onSyncComplete(() => {
-      // 他タブが同期完了 → ページリロードなしでデータ更新は
-      // 呼び出し元コンポーネントが watchQuery / useLiveQuery で対応する想定
-      // ここでは syncState をリセットするだけ
       setSyncState("idle");
     });
     return unsubscribe;
@@ -202,4 +225,115 @@ export function useSync({ encryptionKey }: UseSyncOptions): UseSyncResult {
   }, [runSync]);
 
   return { syncState, triggerSync };
+}
+
+/**
+ * グループ同期サブルーティン。
+ * 参加中の全グループに対して pull → grant-pending-keys → push を実行する。
+ */
+async function runGroupSync(privateKey: CryptoKey): Promise<void> {
+  let groups: Awaited<ReturnType<typeof cloudflareGroupSyncRepository.listGroups>>;
+  try {
+    groups = await cloudflareGroupSyncRepository.listGroups();
+  } catch {
+    // グループ一覧取得失敗は非致命的（個人同期は完了済み）
+    console.warn("[use-sync] listGroups failed, skipping group sync");
+    return;
+  }
+
+  for (const group of groups) {
+    try {
+      await syncOneGroup(group.id, privateKey);
+    } catch (err) {
+      console.warn(`[use-sync] group sync failed for ${group.id}:`, err);
+    }
+  }
+}
+
+async function syncOneGroup(groupId: string, privateKey: CryptoKey): Promise<void> {
+  // グループ鍵を key_store から取得（なければサーバーから unwrap）
+  const storeKey = `group-key:${groupId}`;
+  let groupKey: CryptoKey | null = null;
+  let keyVersion = 1;
+
+  const stored = await db.key_store.get(storeKey);
+  if (stored) {
+    groupKey = stored.key;
+  } else {
+    const remote = await cloudflareGroupSyncRepository.fetchMyGroupKey(groupId);
+    if (!remote) return; // まだ鍵付与待ち
+    try {
+      groupKey = await webKeyManagementService.unwrapGroupKey(remote.wrappedGroupKey, privateKey);
+      keyVersion = remote.keyVersion;
+      await db.key_store.put({ id: storeKey, key: groupKey, createdAt: new Date() });
+    } catch {
+      console.warn(`[use-sync] unwrapGroupKey failed for group ${groupId}`);
+      return;
+    }
+  }
+
+  const groupSince = loadGroupHlc(groupId);
+
+  // Pull: グループサーバー → IndexedDB
+  const pullResult = await pullGroupSync(
+    groupId,
+    groupKey,
+    cloudflareGroupSyncRepository,
+    dexiePinRepository,
+    webKeyManagementService,
+    groupSince
+  );
+
+  if (
+    pullResult.lastHlc.physical > groupSince.physical ||
+    (pullResult.lastHlc.physical === groupSince.physical &&
+      pullResult.lastHlc.logical > groupSince.logical)
+  ) {
+    saveGroupHlc(groupId, pullResult.lastHlc);
+  }
+
+  // pending_key メンバーへの鍵付与を試みる（失敗は無視）
+  try {
+    await grantPendingMemberKeys(
+      groupId,
+      groupKey,
+      webKeyManagementService,
+      cloudflareGroupSyncRepository
+    );
+  } catch {
+    // 非致命的
+  }
+
+  // Push: ローカル変更 → グループサーバー
+  await pushGroupSync(
+    groupId,
+    groupKey,
+    keyVersion,
+    cloudflareGroupSyncRepository,
+    dexiePinRepository,
+    webKeyManagementService,
+    groupSince
+  );
+
+  // Pull Photos: グループ写真 R2 → Dexie
+  await pullGroupPhotoSync(
+    groupId,
+    groupKey,
+    cloudflareGroupSyncRepository,
+    dexiePinRepository,
+    dexiePhotoRepository,
+    webKeyManagementService,
+    extractExifFromBlob
+  );
+
+  // Push Photos: 未同期グループ写真 → グループ R2
+  await pushGroupPhotoSync(
+    groupId,
+    groupKey,
+    keyVersion,
+    cloudflareGroupSyncRepository,
+    dexiePinRepository,
+    dexiePhotoRepository,
+    webKeyManagementService
+  );
 }

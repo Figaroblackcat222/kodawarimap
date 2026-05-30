@@ -1,5 +1,5 @@
 import type { PinRepository } from "@application/ports/pin-repository";
-import type { Pin, PinId, PinReaction, ShoppingItem } from "@domain/entities/pin";
+import type { Pin, PinId, PinReaction, PinSpace, ShoppingItem } from "@domain/entities/pin";
 import type { HLC } from "@domain/value-objects/hlc";
 import { db, type PinRecord } from "./db";
 
@@ -18,6 +18,10 @@ function recordToPin(r: PinRecord): Pin {
     logical: r.hlcLogical ?? 0,
     nodeId: r.hlcNodeId ?? "legacy",
   };
+
+  const space: PinSpace | undefined = r.groupId
+    ? { kind: "group", groupId: r.groupId, authorId: r.authorId }
+    : undefined;
 
   return {
     id: r.id,
@@ -51,6 +55,7 @@ function recordToPin(r: PinRecord): Pin {
     hlc,
     createdAt: r.createdAt,
     deletedAt: r.deletedAt,
+    space,
   };
 }
 
@@ -95,6 +100,8 @@ export const dexiePinRepository: PinRepository = {
       syncSchemaVersion: 1,
       createdAt: pin.createdAt,
       deletedAt: pin.deletedAt,
+      groupId: pin.space?.kind === "group" ? pin.space.groupId : undefined,
+      authorId: pin.space?.kind === "group" ? pin.space.authorId : undefined,
     });
   },
 

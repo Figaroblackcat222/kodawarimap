@@ -4,10 +4,16 @@
 import type { Env } from "../types";
 import { verifyJwt } from "../lib/jwt";
 
-export type UserPlan = "free" | "pro";
+export type UserPlan = "free" | "pro" | "family";
 export type UserRole = "user" | "admin";
 
-export type AuthSuccess = { userId: string; plan: UserPlan; role: UserRole };
+export type AuthSuccess = {
+  userId: string;
+  plan: UserPlan;
+  /** family_seats 付与を加味した実効プラン。requirePro はこちらで判定する */
+  effectivePlan: "free" | "pro";
+  role: UserRole;
+};
 export type AuthResult = AuthSuccess | Response;
 
 function forbidden(message: string): Response {
@@ -48,10 +54,14 @@ export async function requireAuth(request: Request, env: Env): Promise<AuthResul
     });
   }
 
-  // DBから最新の plan / role を取得（JWT発行後のプラン変更にも即時対応）
-  const user = await env.DB.prepare("SELECT plan, role FROM users WHERE id = ?")
+  // DBから最新の plan / role を取得し、family_seats 付与を加味した実効プランを計算
+  const user = await env.DB.prepare(
+    `SELECT u.plan, u.role,
+       EXISTS(SELECT 1 FROM family_seats WHERE member_user_id = u.id) AS has_seat
+     FROM users u WHERE u.id = ?`
+  )
     .bind(sub)
-    .first<{ plan: string; role: string }>();
+    .first<{ plan: string; role: string; has_seat: number }>();
 
   if (!user) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -60,20 +70,37 @@ export async function requireAuth(request: Request, env: Env): Promise<AuthResul
     });
   }
 
+  const plan = (user.plan as UserPlan) ?? "free";
+  // family オーナー or 席付与メンバー は実効プラン 'pro'
+  const effectivePlan: "free" | "pro" =
+    plan === "pro" || plan === "family" || user.has_seat === 1 ? "pro" : "free";
+
   return {
     userId: sub,
-    plan: (user.plan as UserPlan) ?? "free",
+    plan,
+    effectivePlan,
     role: (user.role as UserRole) ?? "user",
   };
 }
 
 /**
- * plan が 'pro' でなければ 403 を返す。
- * requireAuth の結果を受け取って使う。
+ * 実効プランが 'pro' 以上でなければ 403 を返す。
+ * family オーナー・席付与メンバーも通過する。
  */
 export function requirePro(auth: AuthSuccess): Response | null {
-  if (auth.plan !== "pro") {
+  if (auth.effectivePlan !== "pro") {
     return forbidden("pro_required");
+  }
+  return null;
+}
+
+/**
+ * plan が 'family' でなければ 403 を返す。
+ * グループ作成（スペース所有）に使用。
+ */
+export function requireFamilyOwner(auth: AuthSuccess): Response | null {
+  if (auth.plan !== "family") {
+    return forbidden("family_plan_required");
   }
   return null;
 }

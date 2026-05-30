@@ -26,6 +26,9 @@ interface PinRecord {
   thumbnailPhotoId?: string;
   shoppingItemsJson?: string;
   deletedAt?: Date;
+  // v15: 家族スペース共有フィールド（個人ピンは undefined）
+  groupId?: string;
+  authorId?: string;
   // v12: HLC フィールド
   hlcPhysical: number;
   hlcLogical: number;
@@ -168,6 +171,13 @@ class KodawarimapDB extends Dexie {
     });
     this.version(14).stores({
       pins: "id, createdAt, deletedAt, categoryId, hlcPhysical",
+      photos: "id, pinId, createdAt, hlcPhysical",
+      sync_queue: "id, recordId, nextAttemptAt",
+      key_store: "id",
+    });
+    // v15: groupId インデックス追加（家族スペースでのフィルタリング用）
+    this.version(15).stores({
+      pins: "id, createdAt, deletedAt, categoryId, hlcPhysical, groupId",
       photos: "id, pinId, createdAt, hlcPhysical",
       sync_queue: "id, recordId, nextAttemptAt",
       key_store: "id",

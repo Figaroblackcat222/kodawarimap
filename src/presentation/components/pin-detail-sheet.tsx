@@ -16,6 +16,8 @@ import {
   CheckSquare,
   Star,
   Share2,
+  Users,
+  UserCheck,
 } from "lucide-react";
 import { useMediaQuery } from "@presentation/hooks/use-media-query";
 import { normalizePhoto } from "@infrastructure/image/normalize-photo";
@@ -26,6 +28,8 @@ import type { Photo, PhotoExif, PhotoFileInfo } from "@domain/entities/photo";
 import type { PhotoRepository } from "@application/ports/photo-repository";
 import type { SyncRepository } from "@application/ports/sync-repository";
 import type { CryptoService } from "@application/ports/crypto-service";
+import type { GroupSyncRepository } from "@application/ports/group-sync-repository";
+import type { KeyManagementService } from "@application/ports/key-management-service";
 import { PRESET_CATEGORIES, DEFAULT_CATEGORY } from "@domain/entities/category";
 
 interface Props {
@@ -42,6 +46,18 @@ interface Props {
   encryptionKey?: CryptoKey;
   /** 写真バイナリ復号サービス。未指定の場合はスキップ */
   cryptoService?: CryptoService;
+  /** ユーザーが参加しているグループ一覧（個人ピンの共有先選択に使用） */
+  groups?: Array<{ groupId: string; groupName: string }>;
+  /** ピンを家族スペースへ共有する */
+  onShareToGroup?: (groupId: string) => Promise<void>;
+  /** ピンを個人地図へ戻す */
+  onUnshare?: () => Promise<void>;
+  /** グループ写真の遅延ロード・削除用。グループピン表示時に使用 */
+  groupSyncRepository?: GroupSyncRepository;
+  /** グループ写真の復号用 */
+  groupKeyManagementService?: KeyManagementService;
+  /** groupId からグループ鍵を取得するコールバック */
+  getGroupKey?: (groupId: string) => Promise<CryptoKey | null>;
 }
 
 const REACTION_OPTIONS: {
@@ -90,6 +106,12 @@ export function PinDetailSheet({
   syncRepository,
   encryptionKey,
   cryptoService,
+  groups,
+  onShareToGroup,
+  onUnshare,
+  groupSyncRepository,
+  groupKeyManagementService,
+  getGroupKey,
 }: Props) {
   const [title, setTitle] = useState(pin.title);
   const [categoryId, setCategoryId] = useState(pin.categoryId ?? DEFAULT_CATEGORY.id);
@@ -237,15 +259,118 @@ export function PinDetailSheet({
 
   // 遅延ロード: サーバー側にあってローカルにない写真を取得して復元する
   useEffect(() => {
-    if (!syncRepository || !encryptionKey || !cryptoService) return;
+    const isGroupPin = pin.space?.kind === "group";
+    const groupId = pin.space?.kind === "group" ? pin.space.groupId : undefined;
+
+    // グループピン: groupSyncRepository + groupKey を使う
+    // 個人ピン: syncRepository + encryptionKey + cryptoService を使う
+    const canLoadGroup =
+      isGroupPin && groupId && groupSyncRepository && groupKeyManagementService && getGroupKey;
+    const canLoadPersonal = !isGroupPin && syncRepository && encryptionKey && cryptoService;
+    if (!canLoadGroup && !canLoadPersonal) return;
 
     let cancelled = false;
 
     const loadRemotePhotos = async () => {
       setIsLoadingRemotePhotos(true);
       try {
+        // ------------------------------------------------------------------
+        // グループピンの写真遅延ロード
+        // ------------------------------------------------------------------
+        if (canLoadGroup && groupId) {
+          const groupKey = await getGroupKey(groupId);
+          if (!groupKey || cancelled) return;
+
+          const [remoteList, localPhotos] = await Promise.all([
+            groupSyncRepository.fetchGroupPhotoList(groupId, pin.id),
+            photoRepo.findByPinId(pin.id),
+          ]);
+          const localIds = new Set(localPhotos.map((p) => p.id));
+          const missing = remoteList.filter((r) => !localIds.has(r.id));
+          if (missing.length === 0 || cancelled) return;
+
+          const restoredPhotos: Photo[] = [];
+          for (const remote of missing) {
+            if (cancelled) break;
+            try {
+              const encryptedBuffer = await groupSyncRepository.fetchGroupPhotoBinary(
+                groupId,
+                remote.id
+              );
+              const decryptedBuffer = await groupKeyManagementService.decryptBinaryWithGroupKey(
+                groupKey,
+                encryptedBuffer
+              );
+              const blob = new Blob([decryptedBuffer], { type: "image/jpeg" });
+              let restoredExif: PhotoExif | undefined;
+              try {
+                const exifData = await parseExif(blob);
+                const hasFields =
+                  exifData.takenAt ||
+                  exifData.cameraMake ||
+                  exifData.fNumber != null ||
+                  exifData.exposureTime != null ||
+                  exifData.focalLength != null ||
+                  exifData.iso != null;
+                if (hasFields) {
+                  restoredExif = {
+                    takenAt: exifData.takenAt ?? new Date(remote.hlcPhysical),
+                    takenAtEstimated: exifData.takenAt == null ? true : undefined,
+                    cameraMake: exifData.cameraMake,
+                    cameraModel: exifData.cameraModel,
+                    fNumber: exifData.fNumber,
+                    exposureTime: exifData.exposureTime,
+                    focalLength: exifData.focalLength,
+                    iso: exifData.iso,
+                  };
+                }
+              } catch {}
+              let restoredShoppingItemId: string | undefined;
+              try {
+                const metaJson = await groupKeyManagementService.decryptWithGroupKey(
+                  groupKey,
+                  remote.encryptedMeta,
+                  remote.metaIv
+                );
+                const meta = JSON.parse(metaJson) as { data?: { shoppingItemId?: string } };
+                restoredShoppingItemId = meta.data?.shoppingItemId;
+              } catch {}
+              const photo: Photo = {
+                id: remote.id,
+                pinId: pin.id,
+                blob,
+                mimeType: "image/jpeg",
+                exif: restoredExif,
+                createdAt: new Date(remote.hlcPhysical),
+                hlc: { physical: remote.hlcPhysical, logical: remote.hlcLogical, nodeId: "remote" },
+                syncedAt: new Date(),
+                shoppingItemId: restoredShoppingItemId,
+              };
+              await photoRepo.restore(photo);
+              restoredPhotos.push(photo);
+            } catch (err) {
+              console.warn("[pin-detail-sheet] Failed to fetch group photo:", remote.id, err);
+            }
+          }
+          if (!cancelled && restoredPhotos.length > 0) {
+            const updated = await photoRepo.findByPinId(pin.id);
+            setPhotos(updated);
+            setPhotoComments((prev) => {
+              const next = new Map(prev);
+              restoredPhotos.forEach((p) => {
+                if (!next.has(p.id)) next.set(p.id, p.comment ?? "");
+              });
+              return next;
+            });
+          }
+          return;
+        }
+
+        // ------------------------------------------------------------------
+        // 個人ピンの写真遅延ロード（既存ロジック）
+        // ------------------------------------------------------------------
         const [remoteList, localPhotos] = await Promise.all([
-          syncRepository.fetchPhotoList(pin.id),
+          syncRepository!.fetchPhotoList(pin.id),
           photoRepo.findByPinId(pin.id),
         ]);
 
@@ -258,9 +383,9 @@ export function PinDetailSheet({
         for (const photoId of missingIds) {
           if (cancelled) break;
           try {
-            const encryptedBuffer = await syncRepository.fetchPhotoBinary(photoId);
-            const decryptedBuffer = await cryptoService.decryptBinary(
-              encryptionKey,
+            const encryptedBuffer = await syncRepository!.fetchPhotoBinary(photoId);
+            const decryptedBuffer = await cryptoService!.decryptBinary(
+              encryptionKey!,
               encryptedBuffer
             );
             const blob = new Blob([decryptedBuffer], { type: "image/jpeg" });
@@ -287,22 +412,18 @@ export function PinDetailSheet({
                   iso: exifData.iso,
                 };
               }
-            } catch {
-              // EXIF抽出失敗は無視
-            }
+            } catch {}
             let restoredShoppingItemId: string | undefined;
-            if (remoteRecord?.encryptedMeta && remoteRecord?.metaIv && cryptoService) {
+            if (remoteRecord?.encryptedMeta && remoteRecord?.metaIv) {
               try {
-                const metaJson = await cryptoService.decrypt(
+                const metaJson = await cryptoService!.decrypt(
                   encryptionKey!,
                   remoteRecord.encryptedMeta,
                   remoteRecord.metaIv
                 );
                 const meta = JSON.parse(metaJson) as { data?: { shoppingItemId?: string } };
                 restoredShoppingItemId = meta.data?.shoppingItemId;
-              } catch {
-                // メタデータ復号失敗は無視
-              }
+              } catch {}
             }
             const photo: Photo = {
               id: photoId,
@@ -351,7 +472,7 @@ export function PinDetailSheet({
     return () => {
       cancelled = true;
     };
-    // syncRepository / encryptionKey / cryptoService は起動時に固定されるため deps から除外
+    // syncRepository / encryptionKey 等は起動時に固定されるため deps から除外
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin.id, photoRepo]);
 
@@ -365,10 +486,20 @@ export function PinDetailSheet({
     setPendingAddIds([]);
     setPendingItemPhotoIds([]);
     await Promise.all(pendingDeleteIds.map((id) => photoRepo.delete(id)));
-    if (syncRepository && pendingDeleteIds.length > 0) {
-      await Promise.all(
-        pendingDeleteIds.map((id) => syncRepository.deletePhoto(id).catch(() => {}))
-      );
+    if (pendingDeleteIds.length > 0) {
+      const isGroupPin = pin.space?.kind === "group";
+      const groupId = pin.space?.kind === "group" ? pin.space.groupId : undefined;
+      if (isGroupPin && groupId && groupSyncRepository) {
+        await Promise.all(
+          pendingDeleteIds.map((id) =>
+            groupSyncRepository.deleteGroupPhoto(groupId, id).catch(() => {})
+          )
+        );
+      } else if (syncRepository) {
+        await Promise.all(
+          pendingDeleteIds.map((id) => syncRepository.deletePhoto(id).catch(() => {}))
+        );
+      }
     }
     await Promise.all(
       Array.from(photoComments.entries())
@@ -1661,6 +1792,109 @@ export function PinDetailSheet({
               )}
             </div>
           </div>
+          {/* 家族共有セクション（新規ピン以外） */}
+          {!isNew && (
+            <div
+              style={{
+                padding: "12px 16px",
+                borderTop: "1px solid var(--border)",
+              }}
+            >
+              {pin.space?.kind === "group" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      color: "#8b5cf6",
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Users size={15} />
+                    <span>家族スペースで共有中</span>
+                  </div>
+                  {pin.space.authorId && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 12,
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      <UserCheck size={13} />
+                      <span>作成者: {pin.space.authorId.slice(0, 8)}…</span>
+                    </div>
+                  )}
+                  {onUnshare && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm("個人地図に戻しますか？")) return;
+                        await onUnshare();
+                        onClose();
+                      }}
+                      style={{
+                        alignSelf: "flex-start",
+                        padding: "6px 14px",
+                        borderRadius: 8,
+                        border: "1.5px solid #8b5cf6",
+                        background: "none",
+                        color: "#8b5cf6",
+                        fontSize: 13,
+                        cursor: "pointer",
+                      }}
+                    >
+                      個人地図に戻す
+                    </button>
+                  )}
+                </div>
+              ) : groups && groups.length > 0 && onShareToGroup ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Users size={15} color="#8b5cf6" />
+                  <span style={{ fontSize: 13, color: "var(--text-secondary)", flex: 1 }}>
+                    家族スペースへ共有
+                  </span>
+                  <select
+                    defaultValue=""
+                    onChange={async (e) => {
+                      const gid = e.target.value;
+                      if (!gid) return;
+                      if (
+                        !confirm(
+                          "このピンを家族スペースへ移動しますか？\n個人地図からは削除されます。"
+                        )
+                      ) {
+                        e.target.value = "";
+                        return;
+                      }
+                      await onShareToGroup(gid);
+                      onClose();
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1.5px solid #8b5cf6",
+                      background: "var(--bg-primary)",
+                      color: "#8b5cf6",
+                      fontSize: 13,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="">グループを選択…</option>
+                    {groups.map((g) => (
+                      <option key={g.groupId} value={g.groupId}>
+                        {g.groupName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+            </div>
+          )}
+
           {/* フッター固定ボタン */}
           <div
             style={{

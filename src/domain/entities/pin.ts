@@ -27,6 +27,9 @@ export interface ShoppingItem {
   photoId?: string;
 }
 
+/** ピンが属するスペース。未設定は個人地図 */
+export type PinSpace = { kind: "private" } | { kind: "group"; groupId: string; authorId?: string };
+
 export interface Pin {
   id: PinId;
   coordinates: Coordinates;
@@ -46,6 +49,8 @@ export interface Pin {
   hlc: HLC;
   createdAt: Date;
   deletedAt?: Date;
+  /** 家族スペース共有時のみセット。未設定は個人地図 */
+  space?: PinSpace;
 }
 
 export function createPin(

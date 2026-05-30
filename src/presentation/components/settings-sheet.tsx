@@ -22,6 +22,7 @@ import {
   Fingerprint,
   Trash2,
   Plus,
+  Users,
 } from "lucide-react";
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { PhotoRepository } from "@application/ports/photo-repository";
@@ -68,6 +69,8 @@ interface Props {
   onLogout?: () => void;
   /** パスキー操作用 SyncRepository（Pro ユーザーのみ） */
   syncRepository?: typeof cloudflareSyncRepository;
+  /** 家族共有シートを開く */
+  onOpenFamilyGroups?: () => void;
 }
 
 const RETENTION_OPTIONS = [7, 14, 30, 60, 90] as const;
@@ -94,6 +97,7 @@ export function SettingsSheet({
   hasSyncKey = false,
   onLogout,
   syncRepository,
+  onOpenFamilyGroups,
 }: Props) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -800,6 +804,18 @@ export function SettingsSheet({
                     </p>
                   )}
                 </div>
+              )}
+
+              {onOpenFamilyGroups && (
+                <SettingRow
+                  icon={<Users size={18} />}
+                  label="家族共有"
+                  description="グループを作成・管理する"
+                >
+                  <button onClick={onOpenFamilyGroups} style={btnStyle("#8b5cf6")}>
+                    開く
+                  </button>
+                </SettingRow>
               )}
 
               <SettingRow
