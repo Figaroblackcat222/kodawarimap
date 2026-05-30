@@ -178,8 +178,8 @@ export async function pushSync(
     ...deletedModified.filter((d) => !modifiedPins.some((m) => m.id === d.id)),
   ];
 
-  // 2. 各 Pin を暗号化して push
-  for (const pin of allModified) {
+  // 2. 各 Pin を暗号化して push（グループピンは push-group-sync が担当するのでスキップ）
+  for (const pin of allModified.filter((p) => p.space?.kind !== "group")) {
     try {
       const payload = pinToPayload(pin);
       const plaintext = JSON.stringify(payload);
