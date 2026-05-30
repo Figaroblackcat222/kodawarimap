@@ -30,6 +30,7 @@ import { createGroup as createGroupUseCase } from "@application/use-cases/create
 import { grantPendingMemberKeys } from "@application/use-cases/grant-pending-member-keys";
 import { revokeMember } from "@application/use-cases/revoke-member";
 import { rotateGroupKey } from "@application/use-cases/rotate-group-key";
+import { authService } from "@infrastructure/sync/auth-service";
 
 interface Props {
   onClose: () => void;
@@ -103,10 +104,24 @@ export function FamilyGroupSheet({
     setError(null);
     try {
       const raw = await groupSyncRepository.listGroups();
+      const privateKey = await getPrivateKey();
       // グループ名を復号
       const decrypted = await Promise.all(
         raw.map(async (r: RawGroupRecord): Promise<FamilyGroup> => {
-          const key = await getGroupKey(r.id);
+          let key = await getGroupKey(r.id);
+          // キャッシュになければサーバーから取得して保存（active になった直後など）
+          if (!key && privateKey) {
+            try {
+              const fetched = await groupSyncRepository.fetchMyGroupKey(r.id);
+              if (fetched) {
+                key = await keyManagementService.unwrapGroupKey(
+                  fetched.wrappedGroupKey,
+                  privateKey
+                );
+                await saveGroupKey(r.id, key);
+              }
+            } catch {}
+          }
           let name = `（グループ ${r.id.slice(0, 6)}）`;
           if (key) {
             try {
@@ -125,7 +140,14 @@ export function FamilyGroupSheet({
     } finally {
       setLoading(false);
     }
-  }, [groupSyncRepository, getGroupKey, keyManagementService, onGroupsLoaded]);
+  }, [
+    groupSyncRepository,
+    getGroupKey,
+    keyManagementService,
+    onGroupsLoaded,
+    getPrivateKey,
+    saveGroupKey,
+  ]);
 
   useEffect(() => {
     loadGroups();
@@ -377,7 +399,7 @@ export function FamilyGroupSheet({
           <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text-primary)" }}>
             グループ
           </span>
-          {!creating && (
+          {!creating && authService.getPlan() === "family" && (
             <button
               onClick={() => setCreating(true)}
               style={{

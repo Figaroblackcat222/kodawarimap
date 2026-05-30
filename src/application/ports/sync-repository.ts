@@ -58,7 +58,13 @@ export interface SyncRepository {
     token: string,
     passwordHash: string,
     salt: string
-  ): Promise<{ accessToken: string; refreshToken: string; salt: string; plan: string; role: string }>;
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    salt: string;
+    plan: string;
+    role: string;
+  }>;
   login(email: string, passwordHash: string): Promise<LoginResult>;
   refreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }>;
   logout(refreshToken: string): Promise<void>;

@@ -26,6 +26,11 @@ async function fetchWithAuth(input: RequestInfo, init: RequestInit = {}): Promis
 
   const res = await fetch(input, { ...init, headers });
 
+  // 403/pro_required: プランが変わった可能性があるので即時リフレッシュ（バックグラウンド）
+  if (res.status === 403) {
+    authService.forceRefresh().catch(() => {});
+  }
+
   // 401: トークンリフレッシュ後に1回リトライ
   if (res.status === 401) {
     authService.clearTokens();

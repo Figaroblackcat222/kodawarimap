@@ -98,7 +98,7 @@ export function SyncSetupSheet({
   // ログイン済みだが鍵がない状態（ページリロード後）
   const baseMode: "auth" | "reenter" = authService.isLoggedIn() ? "reenter" : "auth";
   const mode: ModeType =
-    inviteToken && !authService.isLoggedIn()
+    inviteToken && inviteEmail && !authService.isLoggedIn()
       ? "invite-activate"
       : passkeyMode
         ? "passkey"

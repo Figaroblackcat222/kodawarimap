@@ -99,6 +99,9 @@ export function SettingsSheet({
   syncRepository,
   onOpenFamilyGroups,
 }: Props) {
+  const [currentPlan, setCurrentPlan] = useState(() => authService.getPlan());
+  useEffect(() => authService.onPlanChange(() => setCurrentPlan(authService.getPlan())), []);
+
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [mapUpdateStatus, setMapUpdateStatus] = useState<"idle" | "checking" | "done">("idle");
@@ -588,20 +591,22 @@ export function SettingsSheet({
             }}
           >
             クラウド同期
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                background: authService.getPlan() === "family" ? "#8b5cf6" : "#6366f1",
-                color: "#fff",
-                padding: "1px 6px",
-                borderRadius: 4,
-                letterSpacing: 0.5,
-                textTransform: "none",
-              }}
-            >
-              {authService.getPlan() === "family" ? "Family" : "Pro"}
-            </span>
+            {(currentPlan === "pro" || currentPlan === "family") && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  background: currentPlan === "family" ? "#8b5cf6" : "#6366f1",
+                  color: "#fff",
+                  padding: "1px 6px",
+                  borderRadius: 4,
+                  letterSpacing: 0.5,
+                  textTransform: "none",
+                }}
+              >
+                {currentPlan === "family" ? "Family" : "Pro"}
+              </span>
+            )}
             {/* 将来の「アップグレード」導線はここに追加 */}
           </p>
 

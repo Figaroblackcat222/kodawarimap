@@ -1741,8 +1741,19 @@ export function MapView() {
           await db.key_store.put({ id: "encryption-key", key, createdAt: new Date() });
           setEncryptionKey(key);
           setShowSyncSetup(false);
-          // invite-activate 完了後: URL にトークンが残っていればグループ承認済みなので除去
           if (pendingInviteToken) {
+            if (!pendingInviteEmail) {
+              // アクティブアカウントの再招待: 通常ログイン後に acceptInvite
+              try {
+                await cloudflareGroupSyncRepository.acceptInvite(pendingInviteToken);
+                showMessage(
+                  "招待を承認しました！グループオーナーが次回同期時にアクセスを付与します。"
+                );
+              } catch {
+                // already_a_member などは無視
+              }
+            }
+            // invite-activate は activateInvite 内でメンバー登録済みなのでここでは URL 除去のみ
             const url = new URL(window.location.href);
             url.searchParams.delete("invite");
             window.history.replaceState({}, "", url.toString());

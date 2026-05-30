@@ -29,6 +29,9 @@ interface JwtPayload {
 /** 進行中のリフレッシュ Promise（競合防止） */
 let refreshingPromise: Promise<string | null> | null = null;
 
+/** プラン変更リスナー */
+const planChangeListeners = new Set<() => void>();
+
 export const authService = {
   // ---------------------------------------------------------------------------
   // トークン操作
@@ -74,6 +77,12 @@ export const authService = {
 
   savePlan(plan: string): void {
     localStorage.setItem(STORAGE_KEY.USER_PLAN, plan);
+    planChangeListeners.forEach((fn) => fn());
+  },
+
+  onPlanChange(fn: () => void): () => void {
+    planChangeListeners.add(fn);
+    return () => planChangeListeners.delete(fn);
   },
 
   getPlan(): "free" | "pro" | "family" | null {
@@ -170,6 +179,11 @@ export const authService = {
     });
 
     return refreshingPromise;
+  },
+
+  /** 強制的にトークンをリフレッシュしてプランを更新する（バックグラウンド用） */
+  forceRefresh(): Promise<void> {
+    return this._doRefresh().then(() => undefined);
   },
 
   /**

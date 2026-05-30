@@ -68,9 +68,13 @@ function createMockSyncRepository(records: PinSyncRecord[] = []): SyncRepository
     listPasskeyCredentials: vi.fn().mockResolvedValue([]),
     deletePasskeyCredential: vi.fn().mockResolvedValue(undefined),
     getInviteInfo: vi.fn().mockResolvedValue({ email: "", isPendingSetup: false }),
-    activateInvite: vi
-      .fn()
-      .mockResolvedValue({ accessToken: "", refreshToken: "", salt: "", plan: "free", role: "user" }),
+    activateInvite: vi.fn().mockResolvedValue({
+      accessToken: "",
+      refreshToken: "",
+      salt: "",
+      plan: "free",
+      role: "user",
+    }),
   };
 }
 
