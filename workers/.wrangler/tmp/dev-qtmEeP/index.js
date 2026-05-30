@@ -24496,7 +24496,9 @@ async function handleLogin(request, env2) {
     );
   }
   const user = await env2.DB.prepare(
-    "SELECT id, password_hash, salt, plan, role FROM users WHERE email = ?"
+    `SELECT u.id, u.password_hash, u.salt, u.plan, u.role, u.status,
+       EXISTS(SELECT 1 FROM family_seats WHERE member_user_id = u.id) AS has_seat
+     FROM users u WHERE u.email = ?`
   )
     .bind(email.toLowerCase())
     .first();
@@ -24513,7 +24515,12 @@ async function handleLogin(request, env2) {
       .run();
     return jsonResponse({ error: "Invalid email or password" }, 401, origin, env2.CORS_ORIGIN);
   }
-  const plan = user.plan ?? "free";
+  if (user.status === "pending_setup") {
+    return jsonResponse({ error: "account_pending_setup" }, 403, origin, env2.CORS_ORIGIN);
+  }
+  const rawPlan = user.plan ?? "free";
+  const plan =
+    rawPlan === "family" || rawPlan === "pro" ? rawPlan : user.has_seat === 1 ? "pro" : rawPlan;
   const role = user.role ?? "user";
   const passkeyCount = await env2.DB.prepare(
     "SELECT COUNT(*) as cnt FROM webauthn_credentials WHERE user_id = ?"
@@ -24576,10 +24583,20 @@ async function handleRefresh(request, env2) {
   await env2.DB.prepare(`UPDATE refresh_tokens SET revoked = 1 WHERE token = ?`)
     .bind(refreshToken)
     .run();
-  const userRecord = await env2.DB.prepare("SELECT plan, role FROM users WHERE id = ?")
+  const userRecord = await env2.DB.prepare(
+    `SELECT u.plan, u.role,
+       EXISTS(SELECT 1 FROM family_seats WHERE member_user_id = u.id) AS has_seat
+     FROM users u WHERE u.id = ?`
+  )
     .bind(record.user_id)
     .first();
-  const plan = userRecord?.plan ?? "free";
+  const rawPlan = userRecord?.plan ?? "free";
+  const plan =
+    rawPlan === "family" || rawPlan === "pro"
+      ? rawPlan
+      : (userRecord?.has_seat ?? 0) === 1
+        ? "pro"
+        : rawPlan;
   const role = userRecord?.role ?? "user";
   const newAccessToken = await signJwt(
     { sub: record.user_id, plan, role },
@@ -24707,6 +24724,109 @@ async function handleRequestRegistration(request, env2) {
   return jsonResponse({ ok: true }, 200, origin, env2.CORS_ORIGIN);
 }
 __name(handleRequestRegistration, "handleRequestRegistration");
+async function handleInviteInfo(request, env2) {
+  const origin = getOrigin2(request);
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (!token) {
+    return jsonResponse({ error: "token required" }, 400, origin, env2.CORS_ORIGIN);
+  }
+  const invite = await env2.DB.prepare(
+    `SELECT gi.invitee_email, gi.status AS invite_status,
+            u.status AS user_status
+     FROM group_invites gi
+     LEFT JOIN users u ON u.email = gi.invitee_email
+     WHERE gi.token = ?`
+  )
+    .bind(token)
+    .first();
+  if (!invite) return jsonResponse({ error: "invite_not_found" }, 404, origin, env2.CORS_ORIGIN);
+  if (invite.invite_status !== "pending") {
+    return jsonResponse({ error: "invite_already_used" }, 422, origin, env2.CORS_ORIGIN);
+  }
+  return jsonResponse(
+    {
+      email: invite.invitee_email,
+      isPendingSetup: invite.user_status === "pending_setup",
+    },
+    200,
+    origin,
+    env2.CORS_ORIGIN
+  );
+}
+__name(handleInviteInfo, "handleInviteInfo");
+async function handleActivateInvite(request, env2) {
+  const origin = getOrigin2(request);
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "Invalid JSON" }, 400, origin, env2.CORS_ORIGIN);
+  }
+  const { token, passwordHash, salt } = body;
+  if (typeof token !== "string" || typeof passwordHash !== "string" || typeof salt !== "string") {
+    return jsonResponse(
+      { error: "token, passwordHash, salt required" },
+      400,
+      origin,
+      env2.CORS_ORIGIN
+    );
+  }
+  const invite = await env2.DB.prepare(
+    `SELECT group_id, invitee_email, status, expires_at FROM group_invites WHERE token = ?`
+  )
+    .bind(token)
+    .first();
+  if (!invite) return jsonResponse({ error: "invite_not_found" }, 404, origin, env2.CORS_ORIGIN);
+  if (invite.status !== "pending") {
+    return jsonResponse({ error: "invite_already_used" }, 422, origin, env2.CORS_ORIGIN);
+  }
+  if (new Date(invite.expires_at) < /* @__PURE__ */ new Date()) {
+    return jsonResponse({ error: "invite_expired" }, 422, origin, env2.CORS_ORIGIN);
+  }
+  const user = await env2.DB.prepare(
+    `SELECT id, status FROM users WHERE email = ? AND status = 'pending_setup'`
+  )
+    .bind(invite.invitee_email)
+    .first();
+  if (!user) {
+    return jsonResponse({ error: "account_not_pending" }, 422, origin, env2.CORS_ORIGIN);
+  }
+  const now = /* @__PURE__ */ new Date().toISOString();
+  const refreshToken = crypto.randomUUID();
+  const refreshExpiry = new Date(
+    Date.now() + REFRESH_TOKEN_TTL_DAYS2 * 24 * 60 * 60 * 1e3
+  ).toISOString();
+  await env2.DB.batch([
+    // パスフレーズ設定・アカウント有効化
+    env2.DB.prepare(
+      `UPDATE users SET password_hash = ?, salt = ?, status = 'active', updated_at = ? WHERE id = ?`
+    ).bind(passwordHash, salt, now, user.id),
+    // グループメンバーシップ作成
+    env2.DB.prepare(
+      `INSERT INTO group_memberships (group_id, user_id, role, status, joined_at)
+       VALUES (?, ?, 'member', 'pending_key', ?)`
+    ).bind(invite.group_id, user.id, now),
+    // 招待トークン消費
+    env2.DB.prepare(`UPDATE group_invites SET status = 'accepted' WHERE token = ?`).bind(token),
+    // リフレッシュトークン発行
+    env2.DB.prepare(
+      `INSERT INTO refresh_tokens (token, user_id, expires_at, revoked) VALUES (?, ?, ?, 0)`
+    ).bind(refreshToken, user.id, refreshExpiry),
+  ]);
+  const accessToken = await signJwt(
+    { sub: user.id, plan: "free", role: "user" },
+    env2.JWT_SECRET,
+    ACCESS_TOKEN_TTL2
+  );
+  return jsonResponse(
+    { accessToken, refreshToken, salt, plan: "free", role: "user" },
+    200,
+    origin,
+    env2.CORS_ORIGIN
+  );
+}
+__name(handleActivateInvite, "handleActivateInvite");
 async function handleAuth(request, env2, path) {
   const method = request.method;
   const origin = getOrigin2(request);
@@ -24727,6 +24847,12 @@ async function handleAuth(request, env2, path) {
   }
   if (path === "/api/account" && method === "DELETE") {
     return handleDeleteAccount(request, env2);
+  }
+  if (path === "/api/auth/invite-info" && method === "GET") {
+    return handleInviteInfo(request, env2);
+  }
+  if (path === "/api/auth/activate-invite" && method === "POST") {
+    return handleActivateInvite(request, env2);
   }
   return jsonResponse({ error: "Not Found" }, 404, origin, env2.CORS_ORIGIN);
 }
@@ -25695,6 +25821,18 @@ async function handleGroups(request, env2, path) {
     const token = crypto.randomUUID();
     const now = /* @__PURE__ */ new Date().toISOString();
     const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 864e5).toISOString();
+    const existingUser = await env2.DB.prepare(`SELECT id FROM users WHERE email = ?`)
+      .bind(inviteeEmail.toLowerCase())
+      .first();
+    if (!existingUser) {
+      const provisionalId = crypto.randomUUID();
+      await env2.DB.prepare(
+        `INSERT INTO users (id, email, password_hash, salt, plan, role, status, created_at, updated_at)
+         VALUES (?, ?, NULL, NULL, 'free', 'user', 'pending_setup', ?, ?)`
+      )
+        .bind(provisionalId, inviteeEmail.toLowerCase(), now, now)
+        .run();
+    }
     await env2.DB.prepare(
       `INSERT INTO group_invites (token, group_id, invitee_email, invited_by, status, created_at, expires_at)
        VALUES (?, ?, ?, ?, 'pending', ?, ?)`
@@ -25923,8 +26061,6 @@ async function handleAcceptInvite(request, env2, token) {
   const origin = request.headers.get("Origin");
   const auth = await requireAuth(request, env2);
   if (auth instanceof Response) return auth;
-  const proErr = requirePro(auth);
-  if (proErr) return proErr;
   const invite = await env2.DB.prepare(
     `SELECT group_id, invitee_email, status, expires_at FROM group_invites WHERE token = ?`
   )

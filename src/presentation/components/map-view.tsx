@@ -513,6 +513,8 @@ export function MapView() {
   const [privateKey, setPrivateKey] = useState<CryptoKey | null>(null);
   const [, setIsLoadingKey] = useState(true);
   const [showSyncSetup, setShowSyncSetup] = useState(false);
+  const [pendingInviteToken, setPendingInviteToken] = useState<string | null>(null);
+  const [pendingInviteEmail, setPendingInviteEmail] = useState<string | null>(null);
   const [showFamilyGroups, setShowFamilyGroups] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
   const [availableGroups, setAvailableGroups] = useState<
@@ -629,20 +631,39 @@ export function MapView() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("invite");
-    if (!token || !authService.isLoggedIn()) return;
+    if (!token) return;
 
     (async () => {
+      if (authService.isLoggedIn()) {
+        // ログイン済み → 直接承認（公開鍵登録後に再試行する処理は encryptionKey useEffect 内にもある）
+        try {
+          await cloudflareGroupSyncRepository.acceptInvite(token);
+          showMessage("招待を承認しました！グループオーナーが次回同期時にアクセスを付与します。");
+          const url = new URL(window.location.href);
+          url.searchParams.delete("invite");
+          window.history.replaceState({}, "", url.toString());
+        } catch (e) {
+          showMessage(
+            "招待の承認に失敗しました: " + (e instanceof Error ? e.message : "不明なエラー")
+          );
+        }
+        return;
+      }
+
+      // 未ログイン → 仮アカウントかどうかを確認してセットアップシートを開く
       try {
-        await cloudflareGroupSyncRepository.acceptInvite(token);
-        showMessage("招待を承認しました！グループオーナーが次回同期時にアクセスを付与します。");
-        // URL からトークンを除去
-        const url = new URL(window.location.href);
-        url.searchParams.delete("invite");
-        window.history.replaceState({}, "", url.toString());
-      } catch (e) {
-        showMessage(
-          "招待の承認に失敗しました: " + (e instanceof Error ? e.message : "不明なエラー")
-        );
+        const info = await cloudflareSyncRepository.getInviteInfo(token);
+        if (info.isPendingSetup) {
+          setPendingInviteToken(token);
+          setPendingInviteEmail(info.email);
+          setShowSyncSetup(true);
+        } else {
+          // アカウントあり → ログインしてから承認できるようトークンを保持
+          setPendingInviteToken(token);
+          setShowSyncSetup(true);
+        }
+      } catch {
+        // トークンが無効・期限切れ → 無視
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1714,10 +1735,20 @@ export function MapView() {
       <SyncSetupSheet
         isOpen={showSyncSetup}
         onClose={() => setShowSyncSetup(false)}
+        inviteToken={pendingInviteToken ?? undefined}
+        inviteEmail={pendingInviteEmail ?? undefined}
         onSuccess={async (key) => {
           await db.key_store.put({ id: "encryption-key", key, createdAt: new Date() });
           setEncryptionKey(key);
           setShowSyncSetup(false);
+          // invite-activate 完了後: URL にトークンが残っていればグループ承認済みなので除去
+          if (pendingInviteToken) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete("invite");
+            window.history.replaceState({}, "", url.toString());
+            setPendingInviteToken(null);
+            setPendingInviteEmail(null);
+          }
         }}
       />
       {showFamilyGroups && encryptionKey && (

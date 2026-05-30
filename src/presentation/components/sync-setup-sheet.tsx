@@ -48,9 +48,13 @@ interface SyncSetupSheetProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (key: CryptoKey) => void;
+  /** 招待トークン（仮アカウント有効化フロー用） */
+  inviteToken?: string;
+  /** 招待先メールアドレス（表示専用） */
+  inviteEmail?: string;
 }
 
-type ModeType = "auth" | "reenter" | "request" | "passkey";
+type ModeType = "auth" | "reenter" | "request" | "passkey" | "invite-activate";
 
 interface PasskeyData {
   session: string;
@@ -59,7 +63,13 @@ interface PasskeyData {
   salt: string;
 }
 
-export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetProps) {
+export function SyncSetupSheet({
+  isOpen,
+  onClose,
+  onSuccess,
+  inviteToken,
+  inviteEmail,
+}: SyncSetupSheetProps) {
   const [email, setEmail] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [passphraseConfirm, setPassphraseConfirm] = useState("");
@@ -87,11 +97,14 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
 
   // ログイン済みだが鍵がない状態（ページリロード後）
   const baseMode: "auth" | "reenter" = authService.isLoggedIn() ? "reenter" : "auth";
-  const mode: ModeType = passkeyMode
-    ? "passkey"
-    : baseMode === "auth" && requestMode
-      ? "request"
-      : baseMode;
+  const mode: ModeType =
+    inviteToken && !authService.isLoggedIn()
+      ? "invite-activate"
+      : passkeyMode
+        ? "passkey"
+        : baseMode === "auth" && requestMode
+          ? "request"
+          : baseMode;
 
   const isLoading = isSubmitting;
 
@@ -243,6 +256,40 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
     }
   };
 
+  const handleActivateInviteSubmit = async () => {
+    if (!inviteToken) return;
+    if (passphrase !== passphraseConfirm) {
+      setErrorMessage("パスフレーズが一致しません");
+      return;
+    }
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      const passwordHash = await hashPassphrase(passphrase);
+      const saltBytes = webCryptoService.generateSalt();
+      const salt = uint8ToBase64(saltBytes);
+      const result = await cloudflareSyncRepository.activateInvite(inviteToken, passwordHash, salt);
+      authService.saveTokens(result.accessToken, result.refreshToken);
+      authService.saveEmail(inviteEmail ?? "");
+      authService.saveSalt(result.salt);
+      authService.savePlan(result.plan);
+      authService.saveRole(result.role);
+      const key = await _deriveKeyDirectly(passphrase, result.salt);
+      const credentials = await cloudflareSyncRepository.listPasskeyCredentials();
+      if (credentials.length === 0) {
+        setPendingCryptoKey(key);
+        setPasskeyRegDeviceName(getDefaultDeviceName());
+        setForcePasskeyRegister(true);
+        return;
+      }
+      onSuccess(key);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "参加に失敗しました");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const goToLogin = () => {
     setRequestMode(false);
     setRequestSent(false);
@@ -302,7 +349,9 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
                   ? "パスフレーズを入力"
                   : mode === "request"
                     ? "同期アカウントを申請する"
-                    : "クラウド同期を設定する"}
+                    : mode === "invite-activate"
+                      ? "グループに参加する"
+                      : "クラウド同期を設定する"}
           </h2>
           <button
             onClick={onClose}
@@ -629,6 +678,68 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
                 </div>
               </div>
             )}
+          </div>
+        ) : mode === "invite-activate" ? (
+          /* --- 招待経由アカウント有効化モード --- */
+          <div>
+            <p
+              style={{
+                margin: "0 0 16px",
+                fontSize: 13,
+                color: "var(--text-secondary)",
+                lineHeight: 1.6,
+              }}
+            >
+              グループへの招待を受けました。パスフレーズを設定してアカウントを有効化してください。
+              パスフレーズはデータの暗号化に使用するため、忘れた場合は復元できません。
+            </p>
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>メールアドレス</label>
+              <input
+                type="email"
+                value={inviteEmail ?? ""}
+                disabled
+                style={{ ...inputStyle, opacity: 0.6 }}
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>パスフレーズ</label>
+              <PasswordInput
+                value={passphrase}
+                onChange={setPassphrase}
+                show={showPass}
+                onToggleShow={() => setShowPass((v) => !v)}
+                disabled={isLoading}
+              />
+            </div>
+            <div style={{ marginBottom: 4 }}>
+              <label style={labelStyle}>パスフレーズ（確認）</label>
+              <PasswordInput
+                value={passphraseConfirm}
+                onChange={setPassphraseConfirm}
+                show={showPassConfirm}
+                onToggleShow={() => setShowPassConfirm((v) => !v)}
+                disabled={isLoading}
+                placeholder="もう一度入力してください"
+              />
+              {passphraseConfirm && passphrase !== passphraseConfirm && (
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#dc2626" }}>
+                  パスフレーズが一致しません
+                </p>
+              )}
+            </div>
+            {errorMessage && <ErrorBanner message={errorMessage} />}
+            <button
+              onClick={handleActivateInviteSubmit}
+              disabled={isLoading || !passphrase || passphrase !== passphraseConfirm}
+              style={{
+                ...primaryBtnStyle(isLoading || !passphrase || passphrase !== passphraseConfirm),
+                width: "100%",
+                marginTop: 20,
+              }}
+            >
+              {isLoading ? <LoadingContent label="設定中..." /> : "グループに参加する"}
+            </button>
           </div>
         ) : (
           /* --- ログインモード（新規登録は招待制のため非表示） --- */

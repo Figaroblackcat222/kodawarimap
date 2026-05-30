@@ -239,6 +239,20 @@ export async function handleGroups(request: Request, env: Env, path: string): Pr
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86400_000).toISOString();
 
+    // 招待先メールのアカウントがなければ仮アカウントを作成する
+    const existingUser = await env.DB.prepare(`SELECT id FROM users WHERE email = ?`)
+      .bind(inviteeEmail.toLowerCase())
+      .first<{ id: string }>();
+    if (!existingUser) {
+      const provisionalId = crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO users (id, email, password_hash, salt, plan, role, status, created_at, updated_at)
+         VALUES (?, ?, NULL, NULL, 'free', 'user', 'pending_setup', ?, ?)`
+      )
+        .bind(provisionalId, inviteeEmail.toLowerCase(), now, now)
+        .run();
+    }
+
     await env.DB.prepare(
       `INSERT INTO group_invites (token, group_id, invitee_email, invited_by, status, created_at, expires_at)
        VALUES (?, ?, ?, ?, 'pending', ?, ?)`
@@ -545,10 +559,10 @@ async function handleRotateKey(
 async function handleAcceptInvite(request: Request, env: Env, token: string): Promise<Response> {
   const origin = request.headers.get("Origin");
 
+  // 招待トークンが承認であるため requirePro は不要。
+  // フリーユーザーも招待を承認でき、オーナーが鍵を付与した時点で family_seats が作成される。
   const auth = await requireAuth(request, env);
   if (auth instanceof Response) return auth;
-  const proErr = requirePro(auth);
-  if (proErr) return proErr;
 
   const invite = await env.DB.prepare(
     `SELECT group_id, invitee_email, status, expires_at FROM group_invites WHERE token = ?`

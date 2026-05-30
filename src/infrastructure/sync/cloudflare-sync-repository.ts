@@ -102,6 +102,34 @@ export const cloudflareSyncRepository: SyncRepository = {
     }
   },
 
+  async getInviteInfo(token: string) {
+    const res = await fetch(`${API_BASE}/api/auth/invite-info?token=${encodeURIComponent(token)}`);
+    if (!res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(d.error ?? `getInviteInfo failed: ${res.status}`);
+    }
+    return res.json() as Promise<{ email: string; isPendingSetup: boolean }>;
+  },
+
+  async activateInvite(token: string, passwordHash: string, salt: string) {
+    const res = await fetch(`${API_BASE}/api/auth/activate-invite`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, passwordHash, salt }),
+    });
+    if (!res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(d.error ?? `activateInvite failed: ${res.status}`);
+    }
+    return res.json() as Promise<{
+      accessToken: string;
+      refreshToken: string;
+      salt: string;
+      plan: string;
+      role: string;
+    }>;
+  },
+
   async login(email: string, passwordHash: string): Promise<LoginResult> {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",

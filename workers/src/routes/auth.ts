@@ -159,12 +159,22 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     );
   }
 
-  // ユーザー取得
+  // ユーザー取得（family_seats の有無も確認して effectivePlan を算出）
   const user = await env.DB.prepare(
-    "SELECT id, password_hash, salt, plan, role FROM users WHERE email = ?"
+    `SELECT u.id, u.password_hash, u.salt, u.plan, u.role, u.status,
+       EXISTS(SELECT 1 FROM family_seats WHERE member_user_id = u.id) AS has_seat
+     FROM users u WHERE u.email = ?`
   )
     .bind(email.toLowerCase())
-    .first<{ id: string; password_hash: string; salt: string; plan: string; role: string }>();
+    .first<{
+      id: string;
+      password_hash: string;
+      salt: string;
+      plan: string;
+      role: string;
+      status: string;
+      has_seat: number;
+    }>();
 
   // 定数時間での比較（タイミング攻撃対策）
   // ユーザーが存在しない場合もダミーハッシュと比較して時間を揃える
@@ -185,7 +195,15 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Invalid email or password" }, 401, origin, env.CORS_ORIGIN);
   }
 
-  const plan = user!.plan ?? "free";
+  // 仮アカウント（招待経由で作成・パスフレーズ未設定）はログイン不可
+  if (user!.status === "pending_setup") {
+    return jsonResponse({ error: "account_pending_setup" }, 403, origin, env.CORS_ORIGIN);
+  }
+
+  const rawPlan = user!.plan ?? "free";
+  // family_seats が付与されていれば "pro" 相当として扱う（クライアントの同期ガード対応）
+  const plan =
+    rawPlan === "family" || rawPlan === "pro" ? rawPlan : user!.has_seat === 1 ? "pro" : rawPlan;
   const role = user!.role ?? "user";
 
   // パスキー登録済みならパスキーセッションを返す（2FA ステップへ）
@@ -276,12 +294,22 @@ async function handleRefresh(request: Request, env: Env): Promise<Response> {
     .bind(refreshToken)
     .run();
 
-  // 最新の plan / role を取得して新しいトークンを発行
-  const userRecord = await env.DB.prepare("SELECT plan, role FROM users WHERE id = ?")
+  // 最新の plan / role を取得して新しいトークンを発行（family_seats も考慮した effectivePlan を返す）
+  const userRecord = await env.DB.prepare(
+    `SELECT u.plan, u.role,
+       EXISTS(SELECT 1 FROM family_seats WHERE member_user_id = u.id) AS has_seat
+     FROM users u WHERE u.id = ?`
+  )
     .bind(record.user_id)
-    .first<{ plan: string; role: string }>();
+    .first<{ plan: string; role: string; has_seat: number }>();
 
-  const plan = userRecord?.plan ?? "free";
+  const rawPlan = userRecord?.plan ?? "free";
+  const plan =
+    rawPlan === "family" || rawPlan === "pro"
+      ? rawPlan
+      : (userRecord?.has_seat ?? 0) === 1
+        ? "pro"
+        : rawPlan;
   const role = userRecord?.role ?? "user";
   const newAccessToken = await signJwt(
     { sub: record.user_id, plan, role },
@@ -455,6 +483,136 @@ async function handleRequestRegistration(request: Request, env: Env): Promise<Re
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/auth/invite-info?token=TOKEN
+// 招待トークンに紐づくメールアドレスとアカウント状態を返す（認証不要）
+// ---------------------------------------------------------------------------
+
+async function handleInviteInfo(request: Request, env: Env): Promise<Response> {
+  const origin = getOrigin(request);
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (!token) {
+    return jsonResponse({ error: "token required" }, 400, origin, env.CORS_ORIGIN);
+  }
+
+  const invite = await env.DB.prepare(
+    `SELECT gi.invitee_email, gi.status AS invite_status,
+            u.status AS user_status
+     FROM group_invites gi
+     LEFT JOIN users u ON u.email = gi.invitee_email
+     WHERE gi.token = ?`
+  )
+    .bind(token)
+    .first<{ invitee_email: string; invite_status: string; user_status: string | null }>();
+
+  if (!invite) return jsonResponse({ error: "invite_not_found" }, 404, origin, env.CORS_ORIGIN);
+  if (invite.invite_status !== "pending") {
+    return jsonResponse({ error: "invite_already_used" }, 422, origin, env.CORS_ORIGIN);
+  }
+
+  return jsonResponse(
+    {
+      email: invite.invitee_email,
+      isPendingSetup: invite.user_status === "pending_setup",
+    },
+    200,
+    origin,
+    env.CORS_ORIGIN
+  );
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/activate-invite
+// 仮アカウントのパスフレーズ設定 + 招待承認を1リクエストで完結（認証不要）
+// ---------------------------------------------------------------------------
+
+async function handleActivateInvite(request: Request, env: Env): Promise<Response> {
+  const origin = getOrigin(request);
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "Invalid JSON" }, 400, origin, env.CORS_ORIGIN);
+  }
+
+  const { token, passwordHash, salt } = body as Record<string, unknown>;
+  if (typeof token !== "string" || typeof passwordHash !== "string" || typeof salt !== "string") {
+    return jsonResponse(
+      { error: "token, passwordHash, salt required" },
+      400,
+      origin,
+      env.CORS_ORIGIN
+    );
+  }
+
+  // トークン検証
+  const invite = await env.DB.prepare(
+    `SELECT group_id, invitee_email, status, expires_at FROM group_invites WHERE token = ?`
+  )
+    .bind(token)
+    .first<{ group_id: string; invitee_email: string; status: string; expires_at: string }>();
+
+  if (!invite) return jsonResponse({ error: "invite_not_found" }, 404, origin, env.CORS_ORIGIN);
+  if (invite.status !== "pending") {
+    return jsonResponse({ error: "invite_already_used" }, 422, origin, env.CORS_ORIGIN);
+  }
+  if (new Date(invite.expires_at) < new Date()) {
+    return jsonResponse({ error: "invite_expired" }, 422, origin, env.CORS_ORIGIN);
+  }
+
+  // 仮アカウント取得
+  const user = await env.DB.prepare(
+    `SELECT id, status FROM users WHERE email = ? AND status = 'pending_setup'`
+  )
+    .bind(invite.invitee_email)
+    .first<{ id: string; status: string }>();
+
+  if (!user) {
+    return jsonResponse({ error: "account_not_pending" }, 422, origin, env.CORS_ORIGIN);
+  }
+
+  const now = new Date().toISOString();
+
+  // アカウント有効化 + 招待承認 + トークン発行をバッチで
+  const refreshToken = crypto.randomUUID();
+  const refreshExpiry = new Date(
+    Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  await env.DB.batch([
+    // パスフレーズ設定・アカウント有効化
+    env.DB.prepare(
+      `UPDATE users SET password_hash = ?, salt = ?, status = 'active', updated_at = ? WHERE id = ?`
+    ).bind(passwordHash, salt, now, user.id),
+    // グループメンバーシップ作成
+    env.DB.prepare(
+      `INSERT INTO group_memberships (group_id, user_id, role, status, joined_at)
+       VALUES (?, ?, 'member', 'pending_key', ?)`
+    ).bind(invite.group_id, user.id, now),
+    // 招待トークン消費
+    env.DB.prepare(`UPDATE group_invites SET status = 'accepted' WHERE token = ?`).bind(token),
+    // リフレッシュトークン発行
+    env.DB.prepare(
+      `INSERT INTO refresh_tokens (token, user_id, expires_at, revoked) VALUES (?, ?, ?, 0)`
+    ).bind(refreshToken, user.id, refreshExpiry),
+  ]);
+
+  const accessToken = await signJwt(
+    { sub: user.id, plan: "free", role: "user" },
+    env.JWT_SECRET,
+    ACCESS_TOKEN_TTL
+  );
+
+  return jsonResponse(
+    { accessToken, refreshToken, salt, plan: "free", role: "user" },
+    200,
+    origin,
+    env.CORS_ORIGIN
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ルーター
 // ---------------------------------------------------------------------------
 
@@ -479,6 +637,12 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
   }
   if (path === "/api/account" && method === "DELETE") {
     return handleDeleteAccount(request, env);
+  }
+  if (path === "/api/auth/invite-info" && method === "GET") {
+    return handleInviteInfo(request, env);
+  }
+  if (path === "/api/auth/activate-invite" && method === "POST") {
+    return handleActivateInvite(request, env);
   }
 
   return jsonResponse({ error: "Not Found" }, 404, origin, env.CORS_ORIGIN);

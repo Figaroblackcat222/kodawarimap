@@ -53,6 +53,12 @@ export interface SyncRepository {
   // 認証
   register(email: string, passwordHash: string, salt: string): Promise<void>;
   requestRegistration(email: string, passwordHash: string, salt: string): Promise<void>;
+  getInviteInfo(token: string): Promise<{ email: string; isPendingSetup: boolean }>;
+  activateInvite(
+    token: string,
+    passwordHash: string,
+    salt: string
+  ): Promise<{ accessToken: string; refreshToken: string; salt: string; plan: string; role: string }>;
   login(email: string, passwordHash: string): Promise<LoginResult>;
   refreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }>;
   logout(refreshToken: string): Promise<void>;
