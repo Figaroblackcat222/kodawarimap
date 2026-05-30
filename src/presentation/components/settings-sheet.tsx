@@ -592,7 +592,7 @@ export function SettingsSheet({
               style={{
                 fontSize: 10,
                 fontWeight: 700,
-                background: "#6366f1",
+                background: authService.getPlan() === "family" ? "#8b5cf6" : "#6366f1",
                 color: "#fff",
                 padding: "1px 6px",
                 borderRadius: 4,
@@ -600,7 +600,7 @@ export function SettingsSheet({
                 textTransform: "none",
               }}
             >
-              Pro
+              {authService.getPlan() === "family" ? "Family" : "Pro"}
             </span>
             {/* 将来の「アップグレード」導線はここに追加 */}
           </p>

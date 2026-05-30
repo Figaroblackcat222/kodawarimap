@@ -76,9 +76,9 @@ export const authService = {
     localStorage.setItem(STORAGE_KEY.USER_PLAN, plan);
   },
 
-  getPlan(): "free" | "pro" | null {
+  getPlan(): "free" | "pro" | "family" | null {
     const v = localStorage.getItem(STORAGE_KEY.USER_PLAN);
-    if (v === "free" || v === "pro") return v;
+    if (v === "free" || v === "pro" || v === "family") return v;
     return null;
   },
 

@@ -123,8 +123,13 @@ async function handleUpdateUser(request: Request, env: Env, userId: string): Pro
   }
 
   const { plan } = body as { plan?: string };
-  if (plan !== undefined && plan !== "free" && plan !== "pro") {
-    return jsonResponse({ error: "plan must be 'free' or 'pro'" }, 400, origin, env.CORS_ORIGIN);
+  if (plan !== undefined && plan !== "free" && plan !== "pro" && plan !== "family") {
+    return jsonResponse(
+      { error: "plan must be 'free', 'pro', or 'family'" },
+      400,
+      origin,
+      env.CORS_ORIGIN
+    );
   }
 
   if (plan === undefined) {

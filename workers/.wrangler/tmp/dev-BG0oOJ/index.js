@@ -25276,8 +25276,13 @@ async function handleUpdateUser(request, env2, userId) {
     return jsonResponse({ error: "Invalid JSON" }, 400, origin, env2.CORS_ORIGIN);
   }
   const { plan } = body;
-  if (plan !== void 0 && plan !== "free" && plan !== "pro") {
-    return jsonResponse({ error: "plan must be 'free' or 'pro'" }, 400, origin, env2.CORS_ORIGIN);
+  if (plan !== void 0 && plan !== "free" && plan !== "pro" && plan !== "family") {
+    return jsonResponse(
+      { error: "plan must be 'free', 'pro', or 'family'" },
+      400,
+      origin,
+      env2.CORS_ORIGIN
+    );
   }
   if (plan === void 0) {
     return jsonResponse({ error: "No updatable fields provided" }, 400, origin, env2.CORS_ORIGIN);

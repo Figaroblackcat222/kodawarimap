@@ -522,6 +522,17 @@ export function MapView() {
     (groups: Array<{ groupId: string; groupName: string }>) => setAvailableGroups(groups),
     []
   );
+  const getPrivateKey = useCallback(async () => {
+    const rec = await db.key_store.get("group-private-key");
+    return rec?.key ?? null;
+  }, []);
+  const saveGroupKey = useCallback(async (groupId: string, key: CryptoKey) => {
+    await db.key_store.put({ id: `group-key:${groupId}`, key, createdAt: new Date() });
+  }, []);
+  const getGroupKey = useCallback(async (groupId: string) => {
+    const rec = await db.key_store.get(`group-key:${groupId}`);
+    return rec?.key ?? null;
+  }, []);
 
   const tagKeywords = useMemo(() => {
     const set = new Set<string>();
@@ -1581,10 +1592,7 @@ export function MapView() {
           cryptoService={encryptionKey ? webCryptoService : undefined}
           groupSyncRepository={cloudflareGroupSyncRepository}
           groupKeyManagementService={webKeyManagementService}
-          getGroupKey={async (groupId) => {
-            const rec = await db.key_store.get(`group-key:${groupId}`);
-            return rec?.key ?? null;
-          }}
+          getGroupKey={getGroupKey}
           groups={availableGroups.length > 0 ? availableGroups : undefined}
           onShareToGroup={
             encryptionKey && privateKey
@@ -1702,17 +1710,9 @@ export function MapView() {
           groupSyncRepository={cloudflareGroupSyncRepository}
           keySyncRepository={cloudflarekeySyncRepository}
           encryptionKey={encryptionKey}
-          getPrivateKey={async () => {
-            const rec = await db.key_store.get("group-private-key");
-            return rec?.key ?? null;
-          }}
-          saveGroupKey={async (groupId, key) => {
-            await db.key_store.put({ id: `group-key:${groupId}`, key, createdAt: new Date() });
-          }}
-          getGroupKey={async (groupId) => {
-            const rec = await db.key_store.get(`group-key:${groupId}`);
-            return rec?.key ?? null;
-          }}
+          getPrivateKey={getPrivateKey}
+          saveGroupKey={saveGroupKey}
+          getGroupKey={getGroupKey}
           pinRepository={repo}
           onGroupsLoaded={handleGroupsLoaded}
         />

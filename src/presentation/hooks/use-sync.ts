@@ -111,7 +111,7 @@ export function useSync({ encryptionKey, privateKey }: UseSyncOptions): UseSyncR
       return;
     }
 
-    if (authService.getPlan() !== "pro") {
+    if (authService.getPlan() !== "pro" && authService.getPlan() !== "family") {
       setSyncState("unauthenticated");
       return;
     }
