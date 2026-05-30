@@ -1668,20 +1668,28 @@ export function MapView() {
                     showMessage("グループ鍵が見つかりません。同期してから再試行してください。");
                     return;
                   }
-                  await unsharePin(
-                    selectedPin,
-                    gid,
-                    1,
-                    groupKeyRecord.key,
-                    webKeyManagementService,
-                    cloudflareGroupSyncRepository,
-                    repo,
-                    cloudflareSyncRepository,
-                    encryptionKey,
-                    webCryptoService
-                  );
-                  await refreshLists();
-                  showMessage("個人地図に戻しました。");
+                  try {
+                    await unsharePin(
+                      selectedPin,
+                      gid,
+                      1,
+                      groupKeyRecord.key,
+                      webKeyManagementService,
+                      cloudflareGroupSyncRepository,
+                      repo,
+                      cloudflareSyncRepository,
+                      encryptionKey,
+                      webCryptoService
+                    );
+                    await refreshLists();
+                    showMessage("個人地図に戻しました。");
+                  } catch (e) {
+                    console.error("[unshare] failed:", e);
+                    showMessage(
+                      "個人地図への移動に失敗しました: " +
+                        (e instanceof Error ? e.message : String(e))
+                    );
+                  }
                 }
               : undefined
           }

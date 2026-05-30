@@ -112,8 +112,16 @@ export function useSync({ encryptionKey, privateKey }: UseSyncOptions): UseSyncR
     }
 
     if (authService.getPlan() !== "pro" && authService.getPlan() !== "family") {
-      setSyncState("unauthenticated");
-      return;
+      // 招待フロー直後はプランが "free" のまま。seat付与済みかもしれないので一度リフレッシュする
+      try {
+        await authService.forceRefresh();
+      } catch {
+        // オフライン等はスキップ
+      }
+      if (authService.getPlan() !== "pro" && authService.getPlan() !== "family") {
+        setSyncState("unauthenticated");
+        return;
+      }
     }
 
     if (!navigator.onLine) {

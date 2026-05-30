@@ -36,7 +36,8 @@ src/
 │   │                    # CryptoService（deriveKey/encrypt/decrypt/encryptBinary/decryptBinary/generateSalt）,
 │   │                    # SyncRepository（認証・fetchPinsSince・pushPin・fetchPhotoList（encryptedMeta/metaIv含む）・pushPhotoBinary・fetchPhotoBinary・deletePhoto・
 │   │                    #   login()戻り値はLoginResult union（通常トークン | {requires_passkey,passkey_session,challenge,credential_ids,salt}）・
-│   │                    #   beginPasskeyRegistration/completePasskeyRegistration/verifyPasskeyAuth/listPasskeyCredentials/deletePasskeyCredential）,
+│   │                    #   beginPasskeyRegistration/completePasskeyRegistration/verifyPasskeyAuth/listPasskeyCredentials/deletePasskeyCredential・
+│   │                    #   getInviteInfo(token)→{email,isPendingSetup}・activateInvite(token,passwordHash,salt)→{accessToken,refreshToken,salt,plan,role}）,
 │   │                    # SyncQueueRepository（enqueue/peekDue/markRetry/remove/coalesce）,
 │   │                    # KeyManagementService（generateUserKeypair/exportPublicKey/importPublicKey/computeFingerprint/wrapPrivateKeyForBackup/unwrapPrivateKeyBackup・
 │   │                    #   generateGroupKey/wrapGroupKeyForMember/unwrapGroupKey/encryptWithGroupKey/decryptWithGroupKey）,
@@ -65,8 +66,13 @@ src/
 │   ├── sync/            # web-crypto-service.ts（PBKDF2 600K + AES-256-GCM。encryptBinary/decryptBinaryは先頭12bytesがIV）,
 │   │                    # auth-service.ts（JWT管理・自動リフレッシュ・plan/role localStorage（kdm:user-plan/kdm:user-role）・API_BASE=VITE_API_BASE優先・
 │   │                    #   kdm:passkey-enabled を savePasskeyEnabled/isPasskeyEnabled で管理・ログアウト時にクリア・
-│   │                    #   getPlan() は "free"|"pro"|"family"|null を返す（family プランも同期可）），
-│   │                    # cloudflare-sync-repository.ts（Workers API fetch・401時自動リフレッシュ・写真multipart・パスキー5メソッド・detailフィールドをエラーに含む）,
+│   │                    #   getPlan() は "free"|"pro"|"family"|null を返す（family プランも同期可）・
+│   │                    #   onPlanChange(fn)→unsubscribe: プラン変更リスナー登録（savePlan 呼び出し時に通知）・
+│   │                    #   forceRefresh(): 強制トークンリフレッシュ（403/pro_required 受信時のバックグラウンドプラン更新用）），
+│   │                    # cloudflare-sync-repository.ts（Workers API fetch・401時自動リフレッシュ・写真multipart・パスキー5メソッド・detailフィールドをエラーに含む・
+│   │                    #   403受信時に authService.forceRefresh() をバックグラウンド実行（プランのローカルキャッシュ即時更新）・
+│   │                    #   getInviteInfo(token): GET /api/auth/invite-info（認証不要）・
+│   │                    #   activateInvite(token,passwordHash,salt): POST /api/auth/activate-invite（認証不要）），
 │   │                    # cloudflare-key-sync-repository.ts（publishPublicKey/fetchPublicKey/fetchPrivateKeyBackup。fetchWithAuth共通パターン）,
 │   │                    # cloudflare-group-sync-repository.ts（createGroup/listGroups/listMembers/inviteMember/acceptInvite/fetchMyGroupKey/
 │   │                    #   listPendingKeys/grantMemberKey/fetchGroupPinsSince/pushGroupPin）,
@@ -101,7 +107,7 @@ src/
     └── components/      # map-view（useSync統合・encryptionKey/privateKey state・起動時IndexedDB key_storeからCryptoKeyを読込（group-private-keyも）・
     │                    #   encryptionKey確定時に publishUserKeypair を自動実行（冪等・RSA-OAEP鍵ペア生成→公開鍵をサーバーに登録）→ privateKey state を更新。
     │                    #   getGroupKey/getPrivateKey/saveGroupKey/handleGroupsLoaded を useCallback でメモ化（FamilyGroupSheet の loadGroups 再レンダーループ防止）。
-    │                    #   ?invite=TOKEN URL処理（起動時にacceptInvite呼び出し）・FamilyGroupSheet統合（showFamilyGroups state）・
+    │                    #   ?invite=TOKEN URL処理: ログイン済み→acceptInvite直接呼び出し。未ログイン→getInviteInfo→isPendingSetup=trueならinvite-activateモードでSyncSetupSheet表示(pendingInviteToken+pendingInviteEmail state)、falseなら通常ログイン後にonSuccessでacceptInvite・FamilyGroupSheet統合（showFamilyGroups state）・
     │                    #   グループピンマーカーは紫色(#8b5cf6)・個人ピンはカテゴリー色・availableGroupsをPinDetailSheetに渡す・
     │                    #   onShareToGroup/onUnshare callbacks（nodeId引数削除済み・key_storeからgroupKey取得してuse-case呼び出し）・
     │                    #   ログアウト時にgroup-private-keyもkey_storeから削除・
@@ -110,15 +116,17 @@ src/
     │                    #   現在地マーカー: locationMarkerRef で管理・青い点（18px 白ボーダー）+ location-pulseアニメーション），
     │                    # family-group-sheet（グループ作成・メンバー一覧+safety number・招待トークン発行・アクセス権付与待ちバナー・注意事項4件・
     │                    #   onGroupsLoaded callback で availableGroups を親に通知・loadMembers時にpending_keyメンバーへ自動鍵付与・
+    │                    #   loadGroups: グループ鍵がキャッシュにない場合 fetchMyGroupKey→unwrapGroupKey→saveGroupKey で取得してグループ名を復号（active直後対応）・
+    │                    #   「作成」ボタンは authService.getPlan()==='family' のみ表示（招待メンバー=seat付きproには非表示）・
     │                    #   テキスト要素に color:var(--text-primary) を明示（ダークモード対応）），
-    │                    # sync-setup-sheet（auth/申請（request）/reenter/passkey/force-passkey-registerの5モード。authモード: ログイン専用 + 「お申し込みの方はこちら」リンク。requestモード: メール+パスフレーズ×2+salt生成してrequestRegistration送信・成功メッセージ表示。reenterモード: パスフレーズのみ（パスキーチェックなし）。passkeyモード: ログイン後に requires_passkey が返った場合に自動遷移・指紋アイコン＋「認証する」ボタン→navigator.credentials.get()→verifyPasskeyAuth()→onSuccess。force-passkey-registerモード: ログイン成功後にlistPasskeyCredentials()が0件の場合に強制遷移（パスキー必須化）・idle/creating/naming/savingの4フェーズ→beginPasskeyRegistration→navigator.credentials.create→completePasskeyRegistration→savePasskeyEnabled(true)→onSuccess・「ログアウトする」リンクのみエスケープハッチ），
+    │                    # sync-setup-sheet（auth/申請（request）/reenter/passkey/force-passkey-register/invite-activateの6モード。authモード: ログイン専用 + 「お申し込みの方はこちら」リンク。requestモード: メール+パスフレーズ×2+salt生成してrequestRegistration送信・成功メッセージ表示。reenterモード: パスフレーズのみ（パスキーチェックなし）。passkeyモード: ログイン後に requires_passkey が返った場合に自動遷移・指紋アイコン＋「認証する」ボタン→navigator.credentials.get()→verifyPasskeyAuth()→onSuccess。force-passkey-registerモード: ログイン成功後にlistPasskeyCredentials()が0件の場合に強制遷移（パスキー必須化）・idle/creating/naming/savingの4フェーズ→beginPasskeyRegistration→navigator.credentials.create→completePasskeyRegistration→savePasskeyEnabled(true)→onSuccess・「ログアウトする」リンクのみエスケープハッチ。invite-activateモード: inviteToken+inviteEmail両方渡された場合に選択→メール表示専用+パスフレーズ×2→activateInvite呼び出し→onSuccess（パスキーチェック省略: seat付与前のfreeプランはlistPasskeyCredentials=403のため）），
     │                    # sync-status-indicator（設定ボタン下 top:92 right:8・idle=緑チェック（タップで今すぐ同期）/syncing=スピナー/error=橙三角（タップ再試行）/offline=灰WifiOff・unauthenticatedは非表示・idle/errorのみクリック可）,
     │                    # photo-upload-button（左下配置・bottom: sheetHeight+8でボトムシートに追従・スマホ・PCともにテキスト常時表示・padding:8px 12px・fontSize:13）,
     │                    # category-selector（タップで2列グリッド展開・選択後に縮小・スマホ/PCともに絵文字＋名前表示・カテゴリー追加時は行が自動増加）,
     │                    # pin-list-sheet（11段階スナップ44px/25%/30%/35%/40%/45%/50%/55%/60%/65%/85%・展開縮小ボタンは44px↔65%のトグル（icon:22px・padding:11px・44pxタッチターゲット）・ピルハンドル下に全件/表示範囲トグル（onListScopeChangeコールバック経由）・件数はセンター表示（activePins.length・フィルター適用後）・展開縮小ボタン左隣にソートカスタムドロップダウン（撮影日/タイトル/おすすめの3択・デフォルト以外は青色ハイライト・外クリックで閉じる・onSortOrderChangeコールバック経由・localStorageに永続化・fontSize:14・padding:"5px 12px"・borderRadius:14）・全件/表示範囲トグルも同サイズ（fontSize:14・padding:"5px 12px"）・ヘッダーdivのpadding:"6px 16px 10px"・フィルターセクションボタン5色（カテゴリー=青 #3b82f6 LayoutGrid・★評価=橙 #f59e0b Star・リアクション=緑 #22c55e Smile・マイタグ=紫 #8b5cf6 Tag・撮影日=橙 #f59e0b Calendar）・ボタン順序: カテゴリー→★評価→リアクション→マイタグ→撮影日・★評価フィルター値は内部値（6=★3以上/8=★4以上/10=★5のみ）・ピン行の★表示は「★2.5」「★4」形式・SectionFilterButtonのpadding:10px 6px（タッチターゲット~44px確保）・FilterPillのpadding:8px 12px（タッチターゲット確保）・ドラッグに8pxデッドゾーン（dragRefにdraggingフラグ・8px超でsetPointerCapture）・フィルター展開時にシートが45%未満なら45%に自動拡張（sheetHeightRefで読み取り・openSection/isFilterBarOpen変化時のみ発火）・フィルターpillsはflexWrap折り返し表示・タグフィルターはマルチセレクトドロップダウン+選択済みタグ表示（外クリックで閉じる）・フィルター適用中はFilterXアイコンボタンをフィルターボタン左隣に表示・撮影日フィルター=toLocalDateStr()でローカルタイムゾーン基準・今週=日曜起点・今月=1日・今年=1月1日・プリセット選択状態を色で表示・タイトル行にreaction絵文字インライン表示・撮影日時右隣にtag表示・キーワード検索がtag対象・pin.thumbnailPhotoIdでサムネイル選択・サムネイルタップで地図flyTo（詳細は開かない・ゴミ箱表示中は無効）・handleFilteredPinsChangeをuseCallback([pins])でメモ化しPinListSheetに渡す（インライン関数による無限ループ防止）・onFilteredPinsChangeで地図マーカーフィルターと同期含む・ショッピングカテゴリーピン行に未チェック品目数バッジ「残りN件」（#d946ef）表示），
     │                    # pin-detail-sheet（右スライドパネル（LINE風）：ピン選択時に右からスライドイン（0.3s ease・requestAnimationFrameによるmount state制御）・デスクトップ（≥768px）=幅400px固定・地図がcalc(100%-400px)に縮む（transition付き）・モバイル=全幅・半透明オーバーレイ+背景タップで閉じる・閉じるボタンはデスクトップ=×・モバイル=←（ChevronLeft）・ESCキーで閉じる（lightbox非表示時のみ）・sheetHeight prop削除・フッターボタン固定・lightboxスワイプ/矢印/キーボード/ピンチズーム（写真コメントをlightboxに表示）・写真別EXIF・写真下に撮影日時（月/日 HH:mm）表示・撮影日時行右端に「共有」ボタン（Share2＋ラベル）：タイトル/撮影場所/コメント+Google Maps URLをWeb Share API / クリップボードで共有（タイトルはbodyPartsに含む）・補足情報accordion先頭に撮影場所（location）フィールドと座標（共有ボタン削除済み）・ダウンロード許可トグル・写真一括追加・各写真に個別コメント入力・★/☆ボタンでサムネ選択（thumbnailPhotoId）・★おすすめ度: スライドジェスチャー10段階（内部値1〜10・0.5〜5.0★表示・半星はoverflow:hidden+display:blockクリップ・左端クリアで未設定・starsOnlyRefで星幅基準計算・starContainerRefはポインターキャプチャ用）・isDirtyによる保存ボタン活性化制御（isNew=trueは常時活性）・pendingAddIds/pendingItemPhotoIdsで閉じる時の未保存写真自動削除・マイタグ入力欄（コメント下）にドロップダウンサジェスト・フッター「閉じる」ボタン含む・ショッピングカテゴリー時のみ買い物リストセクション表示（コメント直後・マイタグ直前）：品目追加/チェック/削除・品目ごとに参照写真1枚（saveForShoppingItem経由・メインギャラリーから除外）・品目写真サムネイルタップでlightboxItemPhotoId経由の拡大表示モーダル・「チェック済みを削除」ボタン・「このリストをコピーして新規作成」ボタン（onCreateCopyコールバック経由）・syncRepository/encryptionKey/cryptoService props経由で遅延写真ロード（R2にありローカルにない写真を自動復元・遅延ロード時にencryptedMeta/metaIvを復号してshoppingItemIdを復元・復元時に復号blobからEXIF再抽出して保存）・handleSave時にpendingDeleteIdsをsyncRepository.deletePhoto()でサーバーからも削除・初回ロード時にexif未保存の既存写真もblobから再抽出してupdateExif()でDB永続化（2回目以降は即時表示）・家族共有セクション: グループピン=「家族スペースで共有中」バナー+authorId表示+「個人地図に戻す」ボタン、個人ピン=グループ選択ドロップダウン（確認ダイアログ付き）・groups/onShareToGroup/onUnshare props），
     │                    # cluster-sheet, current-location-button（左側配置 top:160 left:8・取得後に地図を flyTo して現在地マーカー（青点）を表示），
-    │                    # settings-sheet（地図情報更新（POIキャッシュclr + reg.update()でサーバーに新SW確認 → 新バージョンあり=pwa-update-dialogに任せる・新バージョンなし=設定画面に留まり「完了 ✓」3秒表示。mapUpdateStatus: "idle"|"checking"|"done"）・地図検索ON/OFF（Nominatim・同意ダイアログ付き）・ガイドメッセージON/OFF＋折りたたみ解除ボタン・昼夜自動テーマ切り替えトグル＋時刻設定・同期セクション（Pro/Familyプラン対応バッジ（family=紫 #8b5cf6・pro=インジゴ #6366f1・authService.getPlan()で判定）付きヘッダー・同期状態表示・今すぐ同期・パスフレーズ再入力・パスキー管理UI・「家族共有」行（onOpenFamilyGroups prop・紫ボタン）・ログアウト（IndexedDB key_store の encryption-key+group-private-key 削除）・onLogoutコールバック経由でmap-viewのencryptionKey/privateKeyをクリア）・バックアップセクション（最終エクスポート日時・30日未バックアップ時に警告バナー）），
+    │                    # settings-sheet（地図情報更新（POIキャッシュclr + reg.update()でサーバーに新SW確認 → 新バージョンあり=pwa-update-dialogに任せる・新バージョンなし=設定画面に留まり「完了 ✓」3秒表示。mapUpdateStatus: "idle"|"checking"|"done"）・地図検索ON/OFF（Nominatim・同意ダイアログ付き）・ガイドメッセージON/OFF＋折りたたみ解除ボタン・昼夜自動テーマ切り替えトグル＋時刻設定・同期セクション（Pro/Familyプラン対応バッジ（family=紫 #8b5cf6・pro=インジゴ #6366f1・currentPlan state で判定: authService.onPlanChange() で購読してリアクティブ更新・plan=free/null の場合バッジ非表示）付きヘッダー・同期状態表示・今すぐ同期・パスフレーズ再入力・パスキー管理UI・「家族共有」行（onOpenFamilyGroups prop・紫ボタン）・ログアウト（IndexedDB key_store の encryption-key+group-private-key 削除）・onLogoutコールバック経由でmap-viewのencryptionKey/privateKeyをクリア）・バックアップセクション（最終エクスポート日時・30日未バックアップ時に警告バナー）），
     │                    # pwa-update-dialog（新SW待機時にダイアログ表示・「後で」は1時間スキップ・タブ再オープン（ページロード）時はスヌーズ無視で即表示・visibilitychange+タイマーで再表示（スヌーズ尊重）・useRegisterSW使用）,
     │                    # message-ticker（地図上部ガイドメッセージ・height:40px・font-size:14px・左端に固定ラベル表示（【はじめに】【ヒント】）・静止3秒→左スクロール（1回）→onScrollEndで次メッセージのサイクル・静止中は左12px マージン付き・×で左端に折りたたみ（▶ボタン）・localStorage: ticker-enabled/ticker-collapsed・ピン選択中も含めて常時サイクル（selectedPin 時の固定メッセージなし）），
     │                    # geocoder-search（Nominatim地名検索・収縮/展開ボタン（top:48 right:52）・展開時 top:48 left:50 right:52（ズームコントロール・設定ボタン非重複）・debounce 400ms・flyTo・© OpenStreetMap contributors表示）,
@@ -138,19 +146,25 @@ workers/
 │   │   │                # requirePro(auth)（effectivePlan!=='pro'なら403）・requireAdmin・requireFamilyOwner（plan!=='family'なら403））
 │   │   └── group-auth.ts # requireGroupMember（requireAuth→requirePro→group_memberships status='active' 確認→403/通過）
 │   └── routes/
-│       ├── auth.ts      # POST /api/auth/register（REGISTRATION_OPEN='true'のみ受付）|login（plan/role返却。パスキー登録済みユーザーは {requires_passkey,passkey_session,challenge,credential_ids,salt} を返す）|refresh|logout・DELETE /api/account・ブルートフォース対策（login_attempts）,
-│       │                # POST /api/auth/request-registration（認証不要・email+passwordHash+salt受付・registration_requestsに保存）
-│       ├── keys.ts      # PUT /api/keys/public（requirePro: SPKI公開鍵・fingerprint・暗号化秘密鍵バックアップをUPSERT）,
+│       ├── auth.ts      # POST /api/auth/register（REGISTRATION_OPEN='true'のみ受付）|login（plan/role返却。status='pending_setup'ユーザーは account_pending_setup で403。パスキー登録済みユーザーは {requires_passkey,...} を返す。login/refresh は family_seats 確認で effectivePlan を算出して返す）|refresh|logout・DELETE /api/account・ブルートフォース対策（login_attempts）,
+│       │                # POST /api/auth/request-registration（認証不要・email+passwordHash+salt受付・registration_requestsに保存）,
+│       │                # GET /api/auth/invite-info?token=TOKEN（認証不要・{email, isPendingSetup} 返却）,
+│       │                # POST /api/auth/activate-invite（認証不要・token+passwordHash+salt受付→仮アカウント有効化+group_memberships(pending_key)作成+トークン発行）
+│       ├── keys.ts      # PUT /api/keys/public（requireAuth のみ・requirePro 不要: 招待フローの前提条件のため free ユーザーも登録可能・SPKI公開鍵・fingerprint・暗号化秘密鍵バックアップをUPSERT）,
 │       │                # GET /api/keys/private-backup（requireAuth: 自分の暗号化秘密鍵取得）,
 │       │                # GET /api/keys/public/:userId（requirePro: 対象ユーザーの公開鍵取得。:userId が "me" の場合は auth.userId に解決）
 │       ├── groups.ts    # POST /api/groups（requireFamilyOwner: グループ作成・encrypted_name+nameIv+wrappedGroupKey）,
 │       │                # GET /api/groups（requirePro: 参加グループ一覧）,
+│       │                # DELETE /api/groups/:id（requireAuth+owner確認: グループ削除・group_pins_sync/group_photos_sync/group_invites/family_seats/group_member_keys/group_memberships/family_groups を一括削除）,
 │       │                # GET /api/groups/:id/members（requireGroupMember）,
-│       │                # POST /api/groups/:id/invites（requireGroupMember: 招待トークン発行）,
-│       │                # POST /api/groups/invites/:token/accept（requirePro: 招待承認→pending_key）,
+│       │                # POST /api/groups/:id/invites（requireGroupMember: 招待トークン発行。invitee_email のアカウント未存在時は仮アカウント(status='pending_setup', password_hash='')を自動作成）,
+│       │                # POST /api/groups/invites/:token/accept（requireAuth のみ・requirePro 不要: 招待承認→pending_key。公開鍵未登録は 422）,
 │       │                # GET /api/groups/:id/pending-keys（requireGroupMember: pending_keyメンバーと公開鍵一覧）,
 │       │                # POST /api/groups/:id/member-keys（requireGroupMember: グループ鍵付与→family_seats UPSERT→status=active）,
-│       │                # GET /api/groups/:id/my-key（requirePro: 自分のwrappedGroupKey取得）
+│       │                # GET /api/groups/:id/my-key（requirePro: 自分のwrappedGroupKey取得）,
+│       │                # DELETE /api/groups/:id/members/:userId（requireAuth+role確認: メンバーソフト失効・group_memberships/group_member_keys/family_seats 削除）,
+│       │                # GET /api/groups/:id/active-keys（requireGroupMember: ローテーション用アクティブメンバー公開鍵一覧）,
+│       │                # POST /api/groups/:id/rotate-key（requireAuth+owner確認: 新key_version+wrappedKeys+encryptedName+nameIv → DB更新）
 │       ├── group-pins.ts # GET /api/groups/:id/pins/since（requireGroupMember: HLC LWW pull）,
 │       │                 # PUT /api/groups/:id/pins/:pinId（requireGroupMember: UPSERT・computeServerHlc流用）,
 │       │                 # DELETE /api/groups/:id/pins/:pinId（requireGroupMember: tombstone・author or owner only）
@@ -176,12 +190,14 @@ workers/
 │   ├── 0004_webauthn.sql # webauthn_credentialsテーブル（id/user_id/public_key/counter/device_name/created_at）,
 │   │                     # webauthn_challengesテーブル（challenge PK/user_id/expires_at）
 │   ├── 0005_family_groups.sql # user_public_keysテーブル（user_id PK・public_key SPKI・fingerprint・wrapped_private_key+iv）
-│   └── 0006_family_groups_phase1.sql # family_seatsテーブル（owner_user_id・member_user_id PK・granted_at）,
-│                                     # family_groupsテーブル（id・encrypted_name+nameIv・owner_id・key_version・max_seats）,
-│                                     # group_membershipsテーブル（group_id+user_id PK・role・status: pending_key|active）,
-│                                     # group_member_keysテーブル（group_id+user_id+key_version PK・wrapped_group_key）,
-│                                     # group_invitesテーブル（token PK・group_id・invitee_email・status・expires_at）,
-│                                     # group_pins_syncテーブル（(id, group_id) PK・author_id・key_version・encrypted_payload+iv・HLC・is_deleted）
+│   ├── 0006_family_groups_phase1.sql # family_seatsテーブル（owner_user_id・member_user_id PK・granted_at）,
+│   │                                # family_groupsテーブル（id・encrypted_name+nameIv・owner_id・key_version・max_seats）,
+│   │                                # group_membershipsテーブル（group_id+user_id PK・role・status: pending_key|active）,
+│   │                                # group_member_keysテーブル（group_id+user_id+key_version PK・wrapped_group_key）,
+│   │                                # group_invitesテーブル（token PK・group_id・invitee_email・status・expires_at）,
+│   │                                # group_pins_syncテーブル（(id, group_id) PK・author_id・key_version・encrypted_payload+iv・HLC・is_deleted）
+│   ├── 0007_group_photos.sql        # group_photos_syncテーブル（id+group_id PK・author_id・key_version・encrypted_meta+meta_iv・R2 path・HLC・is_deleted）
+│   └── 0008_invite_provisional_accounts.sql # usersテーブルに status TEXT NOT NULL DEFAULT 'active' カラム追加（pending_setup: 招待リンク未踏の仮アカウント）
 └── wrangler.toml        # name: kodawarimap-api・D1: kodawarimap-sync・R2: kodawarimap-photos・cron: 0 3 * * *
                          # REGISTRATION_OPEN='false'（vars）・デプロイ先: https://kodawarimap-api.figaroblackcat.workers.dev
                          # CORS_ORIGIN secret: https://kodawarimap.figaroblackcat.workers.dev
