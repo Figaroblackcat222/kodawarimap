@@ -83,6 +83,7 @@ function createMockGroupSyncRepository(records: GroupPinSyncRecord[] = []): Grou
     pushGroupPhotoBinary: vi.fn().mockResolvedValue(undefined),
     fetchGroupPhotoBinary: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
     deleteGroupPhoto: vi.fn().mockResolvedValue(undefined),
+    deleteGroup: vi.fn().mockResolvedValue(undefined),
   };
 }
 
