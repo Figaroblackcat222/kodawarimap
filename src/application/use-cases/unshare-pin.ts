@@ -62,7 +62,7 @@ export async function unsharePin(
   encryptionKey: CryptoKey,
   cryptoService: CryptoService
 ): Promise<void> {
-  const tombstoneHlc = nextHlc(pin.hlc, nodeId);
+  const tombstoneHlc = nextHlc(pin.hlc);
 
   // グループ側に tombstone を push
   const tombstonePayload: PinPayload = {
@@ -116,7 +116,7 @@ export async function unsharePin(
   });
 
   // 個人 sync に pin を re-push（space なし）
-  const personalHlc = nextHlc(tombstoneHlc, nodeId);
+  const personalHlc = nextHlc(tombstoneHlc);
   const personalPayload = JSON.stringify({
     schemaVersion: 1,
     data: {

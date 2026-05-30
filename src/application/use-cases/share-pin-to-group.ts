@@ -62,7 +62,7 @@ export async function sharePinToGroup(
   encryptionKey: CryptoKey,
   cryptoService: CryptoService
 ): Promise<void> {
-  const newHlc = nextHlc(pin.hlc, nodeId);
+  const newHlc = nextHlc(pin.hlc);
 
   const payload: PinPayload = {
     schemaVersion: 1,
@@ -132,7 +132,7 @@ export async function sharePinToGroup(
     encryptionKey,
     tombstonePayload
   );
-  const tombstoneHlc = nextHlc(newHlc, nodeId);
+  const tombstoneHlc = nextHlc(newHlc);
   const tombstoneRecord: PinSyncRecord = {
     id: pin.id,
     encryptedPayload: deletedCiphertext,

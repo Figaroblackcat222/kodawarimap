@@ -1,4 +1,4 @@
-import type { Pin, PinSpace } from "@domain/entities/pin";
+import type { Pin } from "@domain/entities/pin";
 
 export function isShared(pin: Pick<Pin, "space">): boolean {
   return pin.space?.kind === "group";

@@ -76,6 +76,13 @@ function createMockGroupSyncRepository(records: GroupPinSyncRecord[] = []): Grou
     grantMemberKey: vi.fn().mockResolvedValue(undefined),
     fetchGroupPinsSince: vi.fn().mockResolvedValue(records),
     pushGroupPin: vi.fn().mockResolvedValue({ hlcPhysical: 1000, hlcLogical: 0 }),
+    revokeGroupMember: vi.fn().mockResolvedValue(undefined),
+    fetchActivePublicKeys: vi.fn().mockResolvedValue([]),
+    rotateGroupKey: vi.fn().mockResolvedValue(undefined),
+    fetchGroupPhotoList: vi.fn().mockResolvedValue([]),
+    pushGroupPhotoBinary: vi.fn().mockResolvedValue(undefined),
+    fetchGroupPhotoBinary: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+    deleteGroupPhoto: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -93,6 +100,8 @@ function createMockKeyMgmt(returnPayload: string): KeyManagementService {
     unwrapGroupKey: vi.fn(),
     encryptWithGroupKey: vi.fn(),
     decryptWithGroupKey: vi.fn().mockResolvedValue(returnPayload),
+    encryptBinaryWithGroupKey: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+    decryptBinaryWithGroupKey: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
   };
 }
 
