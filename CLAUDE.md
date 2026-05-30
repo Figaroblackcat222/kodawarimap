@@ -74,7 +74,7 @@ src/
     │                    #   設定ボタン top:48 right:8・SyncStatusIndicator top:92 right:8・softDeletePin/restorePin にgetNodeId()を渡す・
     │                    #   同期タイミング: 起動時1回・オンライン復帰時・保存/削除/復元後3秒デバウンス（debouncedSyncRef）・30分定期ポーリング（setInterval）・
     │                    #   現在地マーカー: locationMarkerRef で管理・青い点（18px 白ボーダー）+ location-pulseアニメーション（2秒周期パルス）・ボタン押下ごとに前の点を削除して更新），
-    │                    # sync-setup-sheet（auth/申請（request）/reenter/passkeyの4モード。authモード: ログイン専用 + 「お申し込みの方はこちら」リンク。requestモード: メール+パスフレーズ×2+salt生成してrequestRegistration送信・成功メッセージ表示。reenterモード: パスフレーズのみ。passkeyモード: ログイン後に requires_passkey が返った場合に自動遷移・指紋アイコン＋「認証する」ボタン→navigator.credentials.get()→verifyPasskeyAuth()→onSuccess）,
+    │                    # sync-setup-sheet（auth/申請（request）/reenter/passkey/force-passkey-registerの5モード。authモード: ログイン専用 + 「お申し込みの方はこちら」リンク。requestモード: メール+パスフレーズ×2+salt生成してrequestRegistration送信・成功メッセージ表示。reenterモード: パスフレーズのみ（パスキーチェックなし）。passkeyモード: ログイン後に requires_passkey が返った場合に自動遷移・指紋アイコン＋「認証する」ボタン→navigator.credentials.get()→verifyPasskeyAuth()→onSuccess。force-passkey-registerモード: ログイン成功後にlistPasskeyCredentials()が0件の場合に強制遷移（パスキー必須化）・idle/creating/naming/savingの4フェーズ→beginPasskeyRegistration→navigator.credentials.create→completePasskeyRegistration→savePasskeyEnabled(true)→onSuccess・「ログアウトする」リンクのみエスケープハッチ），
     │                    # sync-status-indicator（設定ボタン下 top:92 right:8・idle=緑チェック（タップで今すぐ同期）/syncing=スピナー/error=橙三角（タップ再試行）/offline=灰WifiOff・unauthenticatedは非表示・idle/errorのみクリック可）,
     │                    # photo-upload-button（左下配置・bottom: sheetHeight+8でボトムシートに追従・スマホ・PCともにテキスト常時表示・padding:8px 12px・fontSize:13）,
     │                    # category-selector（タップで2列グリッド展開・選択後に縮小・スマホ/PCともに絵文字＋名前表示・カテゴリー追加時は行が自動増加）,

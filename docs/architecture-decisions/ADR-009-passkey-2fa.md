@@ -59,17 +59,23 @@ CREATE TABLE webauthn_challenges (
 ```
 POST /api/auth/login
   パスワード認証 → webauthn_credentials を確認
-    件数 = 0: 従来トークン返却（既存フロー）
+    件数 = 0: 従来トークン返却
     件数 > 0: passkey_session JWT（TTL 5分・passkey_pending: true）を返却
               { requires_passkey, passkey_session, challenge, credential_ids, salt }
 
-クライアント: navigator.credentials.get({ challenge, allowCredentials })
-  → 生体認証 → assertion 取得
+【件数 = 0 の場合（クライアント側で強制登録）】
+  クライアント: listPasskeyCredentials() → 0件 → force-passkey-register モードへ遷移
+    → beginPasskeyRegistration / navigator.credentials.create / completePasskeyRegistration
+    → savePasskeyEnabled(true) → onSuccess(key)
 
-POST /api/webauthn/auth/verify
-  passkey_session 検証 → challenge 照合・削除
-  → verifyAuthenticationResponse → counter 更新
-  → 通常の accessToken / refreshToken を発行・返却
+【件数 > 0 の場合（2FA）】
+  クライアント: navigator.credentials.get({ challenge, allowCredentials })
+    → 生体認証 → assertion 取得
+
+  POST /api/webauthn/auth/verify
+    passkey_session 検証 → challenge 照合・削除
+    → verifyAuthenticationResponse → counter 更新
+    → 通常の accessToken / refreshToken を発行・返却
 ```
 
 ### パスキー登録フロー
@@ -125,8 +131,9 @@ POST /api/webauthn/register/complete（requireAuth + requirePro）
 
 ### デメリット・注意点
 
-- 新デバイスで最初にログインするときはパスキーが未登録 → パスフレーズのみで認証（設定画面で後からパスキーを追加）
-- platform authenticator はデバイス/OS に依存するため、デバイス紛失時はパスキーが使えなくなる（パスフレーズログインは引き続き可能なため同期は継続できる）
+- 新デバイスで最初にログインするときはパスキーが未登録 → force-passkey-register モードで即時登録を強制（任意登録から必須登録に変更済み）
+- platform authenticator はデバイス/OS に依存するため、デバイス紛失時はパスキーが使えなくなる（パスキー未登録状態に戻すには管理者が DB から webauthn_credentials を削除する）
+- Proプランはマルチデバイス同期前提のため複数デバイスへのパスキー登録を推奨（iCloud/Google キーチェーン経由で同エコシステム内のデバイスはパスキーが自動共有されるため実質的なリカバリになる）
 - ローカル開発時は `workers/.dev.vars` に JWT_SECRET 等を設定する必要がある
 
 ## 関連 ADR

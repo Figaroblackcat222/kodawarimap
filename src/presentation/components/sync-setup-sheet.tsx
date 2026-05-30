@@ -11,7 +11,12 @@ import { X, Eye, EyeOff, Loader2, Fingerprint } from "lucide-react";
 import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
 import { authService } from "@infrastructure/sync/auth-service";
 import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
-import type { AuthenticationResponseJSON } from "@application/ports/sync-repository";
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  RegistrationResponseJSON,
+} from "@application/ports/sync-repository";
+import type { AuthenticatorTransportFuture } from "@simplewebauthn/types";
 
 /** Uint8Array を base64 文字列に変換 */
 function uint8ToBase64(bytes: Uint8Array): string {
@@ -68,6 +73,16 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [forcePasskeyRegister, setForcePasskeyRegister] = useState(false);
+  const [passkeyRegPhase, setPasskeyRegPhase] = useState<"idle" | "creating" | "naming" | "saving">(
+    "idle"
+  );
+  const [passkeyRegCredential, setPasskeyRegCredential] = useState<RegistrationResponseJSON | null>(
+    null
+  );
+  const [passkeyRegDeviceName, setPasskeyRegDeviceName] = useState("");
+  const [pendingCryptoKey, setPendingCryptoKey] = useState<CryptoKey | null>(null);
+
   if (!isOpen) return null;
 
   // ログイン済みだが鍵がない状態（ページリロード後）
@@ -103,11 +118,51 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
       authService.saveSalt(result.salt);
 
       const key = await _deriveKeyDirectly(passphrase, result.salt);
+
+      const credentials = await cloudflareSyncRepository.listPasskeyCredentials();
+      if (credentials.length === 0) {
+        setPendingCryptoKey(key);
+        setPasskeyRegDeviceName(getDefaultDeviceName());
+        setForcePasskeyRegister(true);
+        return;
+      }
+
       onSuccess(key);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "ログインに失敗しました");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleForcePasskeyBegin = async () => {
+    setErrorMessage(null);
+    setPasskeyRegPhase("creating");
+    try {
+      const options = await cloudflareSyncRepository.beginPasskeyRegistration();
+      const credential = await createPasskeyCredential(options);
+      setPasskeyRegCredential(credential);
+      setPasskeyRegPhase("naming");
+    } catch (e) {
+      setErrorMessage(e instanceof Error ? e.message : "パスキーの作成に失敗しました");
+      setPasskeyRegPhase("idle");
+    }
+  };
+
+  const handleForcePasskeyComplete = async () => {
+    if (!passkeyRegCredential || !pendingCryptoKey) return;
+    setErrorMessage(null);
+    setPasskeyRegPhase("saving");
+    try {
+      await cloudflareSyncRepository.completePasskeyRegistration(
+        passkeyRegCredential,
+        passkeyRegDeviceName || getDefaultDeviceName()
+      );
+      authService.savePasskeyEnabled(true);
+      onSuccess(pendingCryptoKey);
+    } catch (e) {
+      setErrorMessage(e instanceof Error ? e.message : "パスキーの保存に失敗しました");
+      setPasskeyRegPhase("idle");
     }
   };
 
@@ -239,13 +294,15 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
               color: "var(--text-primary)",
             }}
           >
-            {mode === "passkey"
-              ? "デバイス認証"
-              : mode === "reenter"
-                ? "パスフレーズを入力"
-                : mode === "request"
-                  ? "同期アカウントを申請する"
-                  : "クラウド同期を設定する"}
+            {forcePasskeyRegister
+              ? "パスキーを登録してください"
+              : mode === "passkey"
+                ? "デバイス認証"
+                : mode === "reenter"
+                  ? "パスフレーズを入力"
+                  : mode === "request"
+                    ? "同期アカウントを申請する"
+                    : "クラウド同期を設定する"}
           </h2>
           <button
             onClick={onClose}
@@ -263,7 +320,125 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
           </button>
         </div>
 
-        {mode === "passkey" ? (
+        {forcePasskeyRegister ? (
+          /* --- パスキー強制登録モード（ログイン直後・未登録の場合） --- */
+          <div>
+            {passkeyRegPhase === "idle" && (
+              <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    margin: "8px 0 20px",
+                    color: "var(--text-secondary)",
+                    fontSize: 14,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <p style={{ margin: "0 0 8px" }}>
+                    セキュリティのため、このデバイスにパスキー（指紋・顔認証）を登録してください。
+                  </p>
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
+                    登録後は次回から生体認証でログインできます。
+                  </p>
+                </div>
+                <div style={{ margin: "28px 0", display: "flex", justifyContent: "center" }}>
+                  <Fingerprint size={64} color="#6366f1" strokeWidth={1.2} />
+                </div>
+                {errorMessage && <ErrorBanner message={errorMessage} />}
+                <button
+                  onClick={handleForcePasskeyBegin}
+                  style={{ ...primaryBtnStyle(false), flex: "unset", width: "100%" }}
+                >
+                  <Fingerprint size={15} />
+                  設定する
+                </button>
+                <div style={{ marginTop: 16, textAlign: "center" }}>
+                  <button onClick={handleLogout} style={smallLinkBtnStyle}>
+                    ログアウトする
+                  </button>
+                </div>
+              </div>
+            )}
+            {passkeyRegPhase === "creating" && (
+              <div
+                style={{
+                  padding: "40px 0",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 16,
+                }}
+              >
+                <Loader2
+                  size={40}
+                  color="#6366f1"
+                  style={{ animation: "spin 0.8s linear infinite" }}
+                />
+                <p style={{ margin: 0, fontSize: 14, color: "var(--text-secondary)" }}>
+                  生体認証を完了してください...
+                </p>
+              </div>
+            )}
+            {passkeyRegPhase === "naming" && (
+              <div>
+                <p
+                  style={{
+                    margin: "0 0 12px",
+                    fontSize: 14,
+                    color: "var(--text-secondary)",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  このデバイスの名前を設定してください。
+                </p>
+                <input
+                  type="text"
+                  value={passkeyRegDeviceName}
+                  onChange={(e) => setPasskeyRegDeviceName(e.target.value)}
+                  placeholder="iPhone / Mac など"
+                  style={inputStyle}
+                />
+                {errorMessage && <ErrorBanner message={errorMessage} />}
+                <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+                  <button
+                    onClick={() => {
+                      setPasskeyRegPhase("idle");
+                      setPasskeyRegCredential(null);
+                      setErrorMessage(null);
+                    }}
+                    style={secondaryBtnStyle}
+                  >
+                    やり直す
+                  </button>
+                  <button
+                    onClick={handleForcePasskeyComplete}
+                    disabled={!passkeyRegDeviceName}
+                    style={primaryBtnStyle(!passkeyRegDeviceName)}
+                  >
+                    保存する
+                  </button>
+                </div>
+              </div>
+            )}
+            {passkeyRegPhase === "saving" && (
+              <div
+                style={{
+                  padding: "40px 0",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 16,
+                }}
+              >
+                <Loader2
+                  size={40}
+                  color="#6366f1"
+                  style={{ animation: "spin 0.8s linear infinite" }}
+                />
+                <p style={{ margin: 0, fontSize: 14, color: "var(--text-secondary)" }}>保存中...</p>
+              </div>
+            )}
+          </div>
+        ) : mode === "passkey" ? (
           /* --- パスキー認証モード --- */
           <div style={{ textAlign: "center" }}>
             <div
@@ -729,4 +904,62 @@ function LoadingContent({ label }: { label: string }) {
       {label}
     </>
   );
+}
+
+const smallLinkBtnStyle: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "var(--text-muted)",
+  fontSize: 12,
+  cursor: "pointer",
+  textDecoration: "underline",
+};
+
+// --- パスキー登録 WebAuthn ヘルパー ---
+
+async function createPasskeyCredential(
+  options: PublicKeyCredentialCreationOptionsJSON
+): Promise<RegistrationResponseJSON> {
+  const credential = (await navigator.credentials.create({
+    publicKey: {
+      ...options,
+      challenge: base64UrlToArrayBuffer(options.challenge),
+      user: {
+        ...options.user,
+        id: base64UrlToArrayBuffer(options.user.id),
+      },
+      excludeCredentials: options.excludeCredentials?.map((c) => ({
+        id: base64UrlToArrayBuffer(c.id),
+        type: "public-key" as const,
+      })),
+    },
+  })) as PublicKeyCredential | null;
+
+  if (!credential) throw new Error("パスキーの作成がキャンセルされました");
+
+  if (typeof credential.toJSON === "function") {
+    return credential.toJSON() as RegistrationResponseJSON;
+  }
+  const resp = credential.response as AuthenticatorAttestationResponse;
+  return {
+    id: credential.id,
+    rawId: uint8ArrayToBase64Url(new Uint8Array(credential.rawId)),
+    response: {
+      clientDataJSON: uint8ArrayToBase64Url(new Uint8Array(resp.clientDataJSON)),
+      attestationObject: uint8ArrayToBase64Url(new Uint8Array(resp.attestationObject)),
+      transports: (resp.getTransports?.() ?? []) as AuthenticatorTransportFuture[],
+    },
+    type: "public-key",
+    clientExtensionResults: credential.getClientExtensionResults() as Record<string, unknown>,
+  };
+}
+
+function getDefaultDeviceName(): string {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return "iPhone";
+  if (/iPad/.test(ua)) return "iPad";
+  if (/Android/.test(ua)) return "Android";
+  if (/Mac/.test(ua)) return "Mac";
+  if (/Windows/.test(ua)) return "Windows PC";
+  return "デバイス";
 }
