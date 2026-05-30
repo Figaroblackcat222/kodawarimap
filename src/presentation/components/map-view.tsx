@@ -561,6 +561,7 @@ export function MapView() {
   }, [encryptionKey, triggerSync]);
 
   // encryptionKey 確定時に RSA-OAEP 鍵ペアを自動生成・公開（冪等・初回のみ実際に生成）
+  // 公開鍵登録後に未処理の招待トークンがあれば承認する（ログイン前に招待リンクを開いたケース対応）
   useEffect(() => {
     if (!encryptionKey) return;
     (async () => {
@@ -579,6 +580,22 @@ export function MapView() {
         });
         const pkRecord = await db.key_store.get("group-private-key");
         if (pkRecord) setPrivateKey(pkRecord.key);
+
+        // 公開鍵登録完了後、URL に招待トークンが残っていれば承認を試みる
+        const params = new URLSearchParams(window.location.search);
+        const pendingToken = params.get("invite");
+        if (pendingToken) {
+          try {
+            await cloudflareGroupSyncRepository.acceptInvite(pendingToken);
+            showMessage("招待を承認しました！グループオーナーが次回同期時にアクセスを付与します。");
+          } catch {
+            // already_a_member は正常（mount 時の処理で既に承認済み）
+          } finally {
+            const url = new URL(window.location.href);
+            url.searchParams.delete("invite");
+            window.history.replaceState({}, "", url.toString());
+          }
+        }
       } catch (e) {
         console.warn("[map-view] publishUserKeypair failed:", e);
       }

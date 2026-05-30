@@ -221,7 +221,12 @@ export function FamilyGroupSheet({
   }
 
   async function handleDeleteGroup(groupId: string, groupName: string) {
-    if (!window.confirm(`「${groupName}」を削除しますか？\nグループのデータはサーバーから削除されます。`)) return;
+    if (
+      !window.confirm(
+        `「${groupName}」を削除しますか？\nグループのデータはサーバーから削除されます。`
+      )
+    )
+      return;
     setDeletingGroupId(groupId);
     setError(null);
     try {
