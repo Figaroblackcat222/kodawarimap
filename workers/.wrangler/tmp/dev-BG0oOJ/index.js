@@ -25586,6 +25586,33 @@ async function handleGroups(request, env2, path) {
     ]);
     return jsonResponse({ groupId: groupId2 }, 201, origin, env2.CORS_ORIGIN);
   }
+  const deleteGroupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
+  if (request.method === "DELETE" && deleteGroupMatch) {
+    const gId = deleteGroupMatch[1];
+    const auth = await requireAuth(request, env2);
+    if (auth instanceof Response) return auth;
+    const proErr = requirePro(auth);
+    if (proErr) return proErr;
+    const group3 = await env2.DB.prepare(`SELECT owner_id FROM family_groups WHERE id = ?`)
+      .bind(gId)
+      .first();
+    if (!group3) return jsonResponse({ error: "group_not_found" }, 404, origin, env2.CORS_ORIGIN);
+    if (group3.owner_id !== auth.userId) {
+      return jsonResponse({ error: "forbidden" }, 403, origin, env2.CORS_ORIGIN);
+    }
+    await env2.DB.batch([
+      env2.DB.prepare(`DELETE FROM group_pins_sync WHERE group_id = ?`).bind(gId),
+      env2.DB.prepare(`DELETE FROM group_photos_sync WHERE group_id = ?`).bind(gId),
+      env2.DB.prepare(`DELETE FROM group_invites WHERE group_id = ?`).bind(gId),
+      env2.DB.prepare(
+        `DELETE FROM family_seats WHERE owner_user_id = ? AND member_user_id IN (SELECT user_id FROM group_memberships WHERE group_id = ?)`
+      ).bind(auth.userId, gId),
+      env2.DB.prepare(`DELETE FROM group_member_keys WHERE group_id = ?`).bind(gId),
+      env2.DB.prepare(`DELETE FROM group_memberships WHERE group_id = ?`).bind(gId),
+      env2.DB.prepare(`DELETE FROM family_groups WHERE id = ?`).bind(gId),
+    ]);
+    return emptyResponse(204, origin, env2.CORS_ORIGIN);
+  }
   if (request.method === "GET" && path === "/api/groups") {
     const auth = await requireAuth(request, env2);
     if (auth instanceof Response) return auth;

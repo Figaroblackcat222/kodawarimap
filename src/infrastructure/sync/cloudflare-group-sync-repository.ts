@@ -209,4 +209,12 @@ export const cloudflareGroupSyncRepository: GroupSyncRepository = {
       throw new Error(d.error ?? `rotateGroupKey failed: ${res.status}`);
     }
   },
+
+  async deleteGroup(groupId) {
+    const res = await fetchWithAuth(`${API_BASE}/api/groups/${groupId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(d.error ?? `deleteGroup failed: ${res.status}`);
+    }
+  },
 };

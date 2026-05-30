@@ -125,4 +125,7 @@ export interface GroupSyncRepository {
       nameIv: string;
     }
   ): Promise<void>;
+
+  /** グループを削除する（オーナーのみ） */
+  deleteGroup(groupId: string): Promise<void>;
 }

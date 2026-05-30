@@ -91,6 +91,40 @@ export async function handleGroups(request: Request, env: Env, path: string): Pr
   }
 
   // -----------------------------------------------------------------------
+  // DELETE /api/groups/:id  グループ削除（オーナーのみ）
+  // -----------------------------------------------------------------------
+  const deleteGroupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
+  if (request.method === "DELETE" && deleteGroupMatch) {
+    const gId = deleteGroupMatch[1]!;
+    const auth = await requireAuth(request, env);
+    if (auth instanceof Response) return auth;
+    const proErr = requirePro(auth);
+    if (proErr) return proErr;
+
+    const group = await env.DB.prepare(`SELECT owner_id FROM family_groups WHERE id = ?`)
+      .bind(gId)
+      .first<{ owner_id: string }>();
+    if (!group) return jsonResponse({ error: "group_not_found" }, 404, origin, env.CORS_ORIGIN);
+    if (group.owner_id !== auth.userId) {
+      return jsonResponse({ error: "forbidden" }, 403, origin, env.CORS_ORIGIN);
+    }
+
+    await env.DB.batch([
+      env.DB.prepare(`DELETE FROM group_pins_sync WHERE group_id = ?`).bind(gId),
+      env.DB.prepare(`DELETE FROM group_photos_sync WHERE group_id = ?`).bind(gId),
+      env.DB.prepare(`DELETE FROM group_invites WHERE group_id = ?`).bind(gId),
+      env.DB.prepare(
+        `DELETE FROM family_seats WHERE owner_user_id = ? AND member_user_id IN (SELECT user_id FROM group_memberships WHERE group_id = ?)`
+      ).bind(auth.userId, gId),
+      env.DB.prepare(`DELETE FROM group_member_keys WHERE group_id = ?`).bind(gId),
+      env.DB.prepare(`DELETE FROM group_memberships WHERE group_id = ?`).bind(gId),
+      env.DB.prepare(`DELETE FROM family_groups WHERE id = ?`).bind(gId),
+    ]);
+
+    return emptyResponse(204, origin, env.CORS_ORIGIN);
+  }
+
+  // -----------------------------------------------------------------------
   // GET /api/groups
   // -----------------------------------------------------------------------
   if (request.method === "GET" && path === "/api/groups") {

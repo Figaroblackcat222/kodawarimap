@@ -19,6 +19,7 @@ import {
   Clock,
   UserX,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import type { FamilyGroup, GroupMember, RawGroupRecord } from "@domain/entities/family-group";
 import type { KeyManagementService } from "@application/ports/key-management-service";
@@ -47,7 +48,7 @@ interface Props {
 const NOTICES = [
   "パスフレーズを忘れると共有データも復元できません。大切に保管してください。",
   "招待後、既存メンバーの端末がオンラインになるまで共有データは表示されません（アクセス権付与待ち）。",
-  "メンバーを削除しても過去に同期済みのデータは保護されません。完全な保護には鍵ローテーションが必要です。",
+  "メンバーを削除する際は、あわせて「暗号鍵の再作成」を実施してください。暗号鍵の再作成はグループの暗号鍵を新しく作り直します。これにより、削除したメンバーは以降のグループデータを閲覧できなくなります。",
   "「安全番号」を家族と口頭で確認することでなりすましを防止できます。",
 ];
 
@@ -85,6 +86,9 @@ export function FamilyGroupSheet({
 
   // 失効
   const [revokingUserId, setRevokingUserId] = useState<string | null>(null);
+
+  // グループ削除
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
 
   // 鍵ローテーション
   const [rotateLoading, setRotateLoading] = useState(false);
@@ -216,6 +220,22 @@ export function FamilyGroupSheet({
     }
   }
 
+  async function handleDeleteGroup(groupId: string, groupName: string) {
+    if (!window.confirm(`「${groupName}」を削除しますか？\nグループのデータはサーバーから削除されます。`)) return;
+    setDeletingGroupId(groupId);
+    setError(null);
+    try {
+      await groupSyncRepository.deleteGroup(groupId);
+      setSelectedGroupId(null);
+      setMembers([]);
+      await loadGroups();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "グループの削除に失敗しました。");
+    } finally {
+      setDeletingGroupId(null);
+    }
+  }
+
   async function handleRotateKey() {
     if (!selectedGroupId || !selectedGroup) return;
     const groupKey = await getGroupKey(selectedGroupId);
@@ -244,7 +264,7 @@ export function FamilyGroupSheet({
       await loadGroups();
       await loadMembers(selectedGroupId);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "鍵ローテーションに失敗しました。");
+      setError(e instanceof Error ? e.message : "暗号鍵の再作成に失敗しました。");
     } finally {
       setRotateLoading(false);
       setRotateProgress(null);
@@ -447,33 +467,63 @@ export function FamilyGroupSheet({
           </p>
         ) : (
           groups.map((g) => (
-            <button
+            <div
               key={g.id}
-              onClick={() => loadMembers(g.id)}
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
-                width: "100%",
-                padding: "10px 12px",
+                gap: 6,
                 marginBottom: 6,
-                background: selectedGroupId === g.id ? "#6366f120" : "var(--bg-secondary)",
-                border: selectedGroupId === g.id ? "1px solid #6366f1" : "1px solid var(--border)",
-                borderRadius: 8,
-                cursor: "pointer",
-                textAlign: "left",
               }}
             >
-              <Users size={16} color="#6366f1" />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
-                  {g.name}
+              <button
+                onClick={() => loadMembers(g.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  flex: 1,
+                  padding: "10px 12px",
+                  background: selectedGroupId === g.id ? "#6366f120" : "var(--bg-secondary)",
+                  border:
+                    selectedGroupId === g.id ? "1px solid #6366f1" : "1px solid var(--border)",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <Users size={16} color="#6366f1" />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+                    {g.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                    {g.role === "owner" ? "オーナー" : "メンバー"} · 最大 {g.maxSeats} 人
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  {g.role === "owner" ? "オーナー" : "メンバー"} · 最大 {g.maxSeats} 人
-                </div>
-              </div>
-            </button>
+              </button>
+              {g.role === "owner" && (
+                <button
+                  onClick={() => handleDeleteGroup(g.id, g.name)}
+                  disabled={deletingGroupId === g.id}
+                  title="グループを削除"
+                  style={{
+                    background: "none",
+                    border: "1px solid #ef4444",
+                    borderRadius: 6,
+                    color: "#ef4444",
+                    cursor: "pointer",
+                    padding: "8px",
+                    display: "flex",
+                    alignItems: "center",
+                    opacity: deletingGroupId === g.id ? 0.5 : 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
           ))
         )}
       </div>
@@ -540,7 +590,7 @@ export function FamilyGroupSheet({
                       onClick={() => {
                         if (
                           window.confirm(
-                            `${m.email} をグループから削除しますか？\n削除後、このメンバーは新しいグループデータにアクセスできなくなります。完全な保護には鍵ローテーションも行ってください。`
+                            `${m.email} をグループから削除しますか？\n削除後は「暗号鍵の再作成」も実施することで、このメンバーへのアクセスを完全に遮断できます。`
                           )
                         ) {
                           handleRevoke(m.userId);
@@ -593,7 +643,7 @@ export function FamilyGroupSheet({
               >
                 <RefreshCw size={14} color="#8b5cf6" />
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#8b5cf6" }}>
-                  鍵ローテーション
+                  暗号鍵の再作成
                 </span>
               </div>
               <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 8px" }}>
@@ -643,7 +693,7 @@ export function FamilyGroupSheet({
                   }}
                 >
                   <RefreshCw size={12} />
-                  {rotateLoading ? "ローテーション中…" : "鍵をローテーションする"}
+                  {rotateLoading ? "再作成中…" : "暗号鍵を再作成する"}
                 </button>
               ) : (
                 <div style={{ display: "flex", gap: 8 }}>
