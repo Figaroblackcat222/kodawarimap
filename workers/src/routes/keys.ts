@@ -98,7 +98,8 @@ export async function handleKeys(request: Request, env: Env, path: string): Prom
     const denied = requirePro(auth);
     if (denied) return denied;
 
-    const targetUserId = publicKeyMatch[1];
+    const rawId = publicKeyMatch[1];
+    const targetUserId = rawId === "me" ? auth.userId : rawId;
 
     const row = await env.DB.prepare(
       `SELECT public_key, fingerprint FROM user_public_keys WHERE user_id = ?`

@@ -25471,7 +25471,8 @@ async function handleKeys(request, env2, path) {
     if (auth instanceof Response) return auth;
     const denied = requirePro(auth);
     if (denied) return denied;
-    const targetUserId = publicKeyMatch[1];
+    const rawId = publicKeyMatch[1];
+    const targetUserId = rawId === "me" ? auth.userId : rawId;
     const row = await env2.DB.prepare(
       `SELECT public_key, fingerprint FROM user_public_keys WHERE user_id = ?`
     )
@@ -26251,45 +26252,53 @@ var src_default = {
     if (request.method === "OPTIONS") {
       return handleOptions(request, env2.CORS_ORIGIN);
     }
+    const origin = request.headers.get("Origin");
+    const applyCors = /* @__PURE__ */ __name((res) => {
+      const h = new Headers(res.headers);
+      for (const [k, v] of Object.entries(corsHeaders(origin, env2.CORS_ORIGIN))) h.set(k, v);
+      return new Response(res.body, { status: res.status, headers: h });
+    }, "applyCors");
     const url = new URL(request.url);
     const path = url.pathname;
     if (path.startsWith("/api/auth/") || path === "/api/account") {
-      return handleAuth(request, env2, path);
+      return applyCors(await handleAuth(request, env2, path));
     }
     if (path.startsWith("/api/pins")) {
-      return handlePins(request, env2, path);
+      return applyCors(await handlePins(request, env2, path));
     }
     if (path.startsWith("/api/photos")) {
-      return handlePhotos(request, env2, path);
+      return applyCors(await handlePhotos(request, env2, path));
     }
     if (path.startsWith("/api/admin")) {
-      return handleAdmin(request, env2, path);
+      return applyCors(await handleAdmin(request, env2, path));
     }
     if (path.startsWith("/api/webauthn")) {
-      return handleWebAuthn(request, env2, path);
+      return applyCors(await handleWebAuthn(request, env2, path));
     }
     if (path.startsWith("/api/keys")) {
-      return handleKeys(request, env2, path);
+      return applyCors(await handleKeys(request, env2, path));
     }
     if (path.startsWith("/api/groups")) {
       const groupPinsMatch = path.match(/^\/api\/groups\/([^/]+)(\/pins.*)$/);
       if (groupPinsMatch) {
-        return handleGroupPins(request, env2, groupPinsMatch[1], groupPinsMatch[2]);
+        return applyCors(
+          await handleGroupPins(request, env2, groupPinsMatch[1], groupPinsMatch[2])
+        );
       }
       const groupPhotosMatch = path.match(/^\/api\/groups\/([^/]+)(\/photos.*)$/);
       if (groupPhotosMatch) {
-        return handleGroupPhotos(request, env2, groupPhotosMatch[1], groupPhotosMatch[2]);
+        return applyCors(
+          await handleGroupPhotos(request, env2, groupPhotosMatch[1], groupPhotosMatch[2])
+        );
       }
-      return handleGroups(request, env2, path);
+      return applyCors(await handleGroups(request, env2, path));
     }
-    const origin = request.headers.get("Origin");
-    return new Response(JSON.stringify({ error: "Not Found" }), {
-      status: 404,
-      headers: {
-        "Content-Type": "application/json",
-        ...corsHeaders(origin, env2.CORS_ORIGIN),
-      },
-    });
+    return applyCors(
+      new Response(JSON.stringify({ error: "Not Found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
   },
   async scheduled(_event, env2, _ctx) {
     const now = /* @__PURE__ */ new Date();

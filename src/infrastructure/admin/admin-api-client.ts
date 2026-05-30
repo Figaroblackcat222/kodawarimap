@@ -3,7 +3,7 @@ import { authService, API_BASE } from "@infrastructure/sync/auth-service";
 export interface AdminUser {
   id: string;
   email: string;
-  plan: "free" | "pro";
+  plan: "free" | "pro" | "family";
   role: "user" | "admin";
   createdAt: string;
   updatedAt: string;
@@ -53,7 +53,7 @@ export const adminApiClient = {
     return res.json() as Promise<ListUsersResult>;
   },
 
-  async updateUserPlan(userId: string, plan: "free" | "pro"): Promise<void> {
+  async updateUserPlan(userId: string, plan: "free" | "pro" | "family"): Promise<void> {
     const res = await adminFetch(`/api/admin/users/${userId}`, {
       method: "PATCH",
       body: JSON.stringify({ plan }),

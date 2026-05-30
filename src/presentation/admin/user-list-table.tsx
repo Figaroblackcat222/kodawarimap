@@ -37,11 +37,24 @@ export function UserListTable() {
   };
 
   const handleTogglePlan = async (user: AdminUser) => {
-    const newPlan = user.plan === "pro" ? "free" : "pro";
+    const newPlan = user.plan === "free" ? "pro" : "free";
     if (newPlan === "free" && !confirm(`${user.email} を Free に降格しますか？`)) return;
     setUpdatingId(user.id);
     try {
       await adminApiClient.updateUserPlan(user.id, newPlan);
+      await fetchUsers(query, offset);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新に失敗しました");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleSetFamily = async (user: AdminUser) => {
+    if (!confirm(`${user.email} を Family プランに設定しますか？`)) return;
+    setUpdatingId(user.id);
+    try {
+      await adminApiClient.updateUserPlan(user.id, "family");
       await fetchUsers(query, offset);
     } catch (err) {
       setError(err instanceof Error ? err.message : "更新に失敗しました");
@@ -169,23 +182,48 @@ export function UserListTable() {
                       borderRadius: 4,
                       fontSize: 12,
                       fontWeight: 700,
-                      background: user.plan === "pro" ? "#6366f1" : "#e5e7eb",
-                      color: user.plan === "pro" ? "#fff" : "#374151",
+                      background:
+                        user.plan === "family"
+                          ? "#8b5cf6"
+                          : user.plan === "pro"
+                            ? "#6366f1"
+                            : "#e5e7eb",
+                      color: user.plan === "free" ? "#374151" : "#fff",
                     }}
                   >
-                    {user.plan === "pro" ? "Pro" : "Free"}
+                    {user.plan === "family" ? "Family" : user.plan === "pro" ? "Pro" : "Free"}
                   </span>
                 </td>
                 <td style={{ padding: "10px 12px", color: "#6b7280" }}>{user.role}</td>
                 <td style={{ padding: "10px 12px", color: "#6b7280", whiteSpace: "nowrap" }}>
                   {formatDate(user.createdAt)}
                 </td>
-                <td style={{ padding: "10px 12px" }}>
+                <td style={{ padding: "10px 12px", display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {user.plan !== "family" && (
+                    <button
+                      onClick={() => void handleSetFamily(user)}
+                      disabled={updatingId === user.id}
+                      style={{
+                        padding: "4px 10px",
+                        border: "none",
+                        borderRadius: 4,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: updatingId === user.id ? "not-allowed" : "pointer",
+                        background: updatingId === user.id ? "#e5e7eb" : "#8b5cf6",
+                        color: updatingId === user.id ? "#9ca3af" : "#fff",
+                        opacity: updatingId === user.id ? 0.6 : 1,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Familyに昇格
+                    </button>
+                  )}
                   <button
                     onClick={() => void handleTogglePlan(user)}
                     disabled={updatingId === user.id}
                     style={{
-                      padding: "4px 12px",
+                      padding: "4px 10px",
                       border: "none",
                       borderRadius: 4,
                       fontSize: 12,
@@ -194,7 +232,7 @@ export function UserListTable() {
                       background:
                         updatingId === user.id
                           ? "#e5e7eb"
-                          : user.plan === "pro"
+                          : user.plan !== "free"
                             ? "#ef4444"
                             : "#6366f1",
                       color: updatingId === user.id ? "#9ca3af" : "#fff",
@@ -204,7 +242,7 @@ export function UserListTable() {
                   >
                     {updatingId === user.id
                       ? "更新中…"
-                      : user.plan === "pro"
+                      : user.plan !== "free"
                         ? "Freeに降格"
                         : "Proに昇格"}
                   </button>

@@ -17,56 +17,67 @@ export default {
       return handleOptions(request, env.CORS_ORIGIN);
     }
 
+    const origin = request.headers.get("Origin");
+
+    // 全レスポンスに CORS ヘッダーを後付けするヘルパー（auth ミドルウェアの 401/403 を含む）
+    const applyCors = (res: Response): Response => {
+      const h = new Headers(res.headers);
+      for (const [k, v] of Object.entries(corsHeaders(origin, env.CORS_ORIGIN))) h.set(k, v);
+      return new Response(res.body, { status: res.status, headers: h });
+    };
+
     const url = new URL(request.url);
     const path = url.pathname;
 
     // ルーティング
     if (path.startsWith("/api/auth/") || path === "/api/account") {
-      return handleAuth(request, env, path);
+      return applyCors(await handleAuth(request, env, path));
     }
 
     if (path.startsWith("/api/pins")) {
-      return handlePins(request, env, path);
+      return applyCors(await handlePins(request, env, path));
     }
 
     if (path.startsWith("/api/photos")) {
-      return handlePhotos(request, env, path);
+      return applyCors(await handlePhotos(request, env, path));
     }
 
     if (path.startsWith("/api/admin")) {
-      return handleAdmin(request, env, path);
+      return applyCors(await handleAdmin(request, env, path));
     }
 
     if (path.startsWith("/api/webauthn")) {
-      return handleWebAuthn(request, env, path);
+      return applyCors(await handleWebAuthn(request, env, path));
     }
 
     if (path.startsWith("/api/keys")) {
-      return handleKeys(request, env, path);
+      return applyCors(await handleKeys(request, env, path));
     }
 
     if (path.startsWith("/api/groups")) {
       // /api/groups/:id/pins/* は group-pins ハンドラに委譲
       const groupPinsMatch = path.match(/^\/api\/groups\/([^/]+)(\/pins.*)$/);
       if (groupPinsMatch) {
-        return handleGroupPins(request, env, groupPinsMatch[1]!, groupPinsMatch[2]!);
+        return applyCors(
+          await handleGroupPins(request, env, groupPinsMatch[1]!, groupPinsMatch[2]!)
+        );
       }
       // /api/groups/:id/photos/* は group-photos ハンドラに委譲
       const groupPhotosMatch = path.match(/^\/api\/groups\/([^/]+)(\/photos.*)$/);
       if (groupPhotosMatch) {
-        return handleGroupPhotos(request, env, groupPhotosMatch[1]!, groupPhotosMatch[2]!);
+        return applyCors(
+          await handleGroupPhotos(request, env, groupPhotosMatch[1]!, groupPhotosMatch[2]!)
+        );
       }
-      return handleGroups(request, env, path);
+      return applyCors(await handleGroups(request, env, path));
     }
 
-    const origin = request.headers.get("Origin");
-    return new Response(JSON.stringify({ error: "Not Found" }), {
-      status: 404,
-      headers: {
-        "Content-Type": "application/json",
-        ...corsHeaders(origin, env.CORS_ORIGIN),
-      },
-    });
+    return applyCors(
+      new Response(JSON.stringify({ error: "Not Found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
   },
 
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
