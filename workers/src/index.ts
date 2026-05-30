@@ -4,6 +4,7 @@ import { handleAuth } from "./routes/auth";
 import { handlePins } from "./routes/pins";
 import { handlePhotos } from "./routes/photos";
 import { handleAdmin } from "./routes/admin";
+import { handleWebAuthn } from "./routes/webauthn";
 
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -30,6 +31,10 @@ export default {
 
     if (path.startsWith("/api/admin")) {
       return handleAdmin(request, env, path);
+    }
+
+    if (path.startsWith("/api/webauthn")) {
+      return handleWebAuthn(request, env, path);
     }
 
     const origin = request.headers.get("Origin");

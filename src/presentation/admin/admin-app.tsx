@@ -35,6 +35,9 @@ export function AdminApp() {
       const passwordHash = btoa(binary);
 
       const result = await cloudflareSyncRepository.login(email, passwordHash);
+      if ("requires_passkey" in result) {
+        throw new Error("管理者アカウントではパスキー認証はサポートされていません");
+      }
       authService.saveTokens(result.accessToken, result.refreshToken);
       authService.saveEmail(email);
       authService.saveSalt(result.salt);

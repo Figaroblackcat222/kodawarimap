@@ -12,6 +12,7 @@ import type { Env } from "../types";
 import { signJwt } from "../lib/jwt";
 import { requireAuth } from "../middleware/auth";
 import { jsonResponse, emptyResponse, corsHeaders } from "../middleware/cors";
+import { issuePasskeySession } from "./webauthn";
 
 const ACCESS_TOKEN_TTL = 15 * 60; // 15分（秒）
 const REFRESH_TOKEN_TTL_DAYS = 30;
@@ -184,9 +185,21 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Invalid email or password" }, 401, origin, env.CORS_ORIGIN);
   }
 
-  // トークン発行（plan / role を JWT に含める）
   const plan = user!.plan ?? "free";
   const role = user!.role ?? "user";
+
+  // パスキー登録済みならパスキーセッションを返す（2FA ステップへ）
+  const passkeyCount = await env.DB.prepare(
+    "SELECT COUNT(*) as cnt FROM webauthn_credentials WHERE user_id = ?"
+  )
+    .bind(user!.id)
+    .first<{ cnt: number }>();
+
+  if (passkeyCount !== null && passkeyCount.cnt > 0) {
+    return issuePasskeySession(user!.id, plan, role, user!.salt, env, request, origin);
+  }
+
+  // パスキー未登録: トークン発行（従来フロー）
   const accessToken = await signJwt(
     { sub: user!.id, plan, role },
     env.JWT_SECRET,

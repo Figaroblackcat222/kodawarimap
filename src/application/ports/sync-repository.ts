@@ -1,3 +1,15 @@
+import type {
+  PublicKeyCredentialCreationOptionsJSON,
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
+} from "@simplewebauthn/types";
+
+export type {
+  PublicKeyCredentialCreationOptionsJSON,
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
+};
+
 export interface PinSyncRecord {
   id: string;
   encryptedPayload: string;
@@ -21,22 +33,42 @@ export interface PhotoSyncRecord {
   createdAt: string; // ISO8601
 }
 
+export type LoginResult =
+  | { accessToken: string; refreshToken: string; salt: string; plan: string; role: string }
+  | {
+      requires_passkey: true;
+      passkey_session: string;
+      challenge: string;
+      credential_ids: string[];
+      salt: string;
+    };
+
+export interface PasskeyCredential {
+  id: string;
+  deviceName: string;
+  createdAt: string;
+}
+
 export interface SyncRepository {
   // 認証
   register(email: string, passwordHash: string, salt: string): Promise<void>;
   requestRegistration(email: string, passwordHash: string, salt: string): Promise<void>;
-  login(
-    email: string,
-    passwordHash: string
-  ): Promise<{
-    accessToken: string;
-    refreshToken: string;
-    salt: string;
-    plan: string;
-    role: string;
-  }>;
+  login(email: string, passwordHash: string): Promise<LoginResult>;
   refreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }>;
   logout(refreshToken: string): Promise<void>;
+
+  // パスキー（WebAuthn 2FA）
+  beginPasskeyRegistration(): Promise<PublicKeyCredentialCreationOptionsJSON>;
+  completePasskeyRegistration(
+    credential: RegistrationResponseJSON,
+    deviceName: string
+  ): Promise<void>;
+  verifyPasskeyAuth(
+    passkeySession: string,
+    assertion: AuthenticationResponseJSON
+  ): Promise<{ accessToken: string; refreshToken: string; plan: string; role: string }>;
+  listPasskeyCredentials(): Promise<PasskeyCredential[]>;
+  deletePasskeyCredential(credentialId: string): Promise<void>;
 
   // ピン同期
   fetchPinsSince(hlcPhysical: number, hlcLogical: number): Promise<PinSyncRecord[]>;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createHlc } from "@domain/value-objects/hlc";
 import { getNodeId } from "@infrastructure/sync/node-id";
 import {
@@ -19,6 +19,9 @@ import {
   LogOut,
   KeyRound,
   AlertTriangle,
+  Fingerprint,
+  Trash2,
+  Plus,
 } from "lucide-react";
 import type { PinRepository } from "@application/ports/pin-repository";
 import type { PhotoRepository } from "@application/ports/photo-repository";
@@ -26,6 +29,12 @@ import { TICKER_ENABLED_KEY, TICKER_COLLAPSED_KEY } from "./message-ticker";
 import { authService } from "@infrastructure/sync/auth-service";
 import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
 import type { SyncState } from "@presentation/hooks/use-sync";
+import type {
+  PasskeyCredential,
+  PublicKeyCredentialCreationOptionsJSON,
+  RegistrationResponseJSON,
+} from "@application/ports/sync-repository";
+import type { AuthenticatorTransportFuture } from "@simplewebauthn/types";
 
 const LAST_EXPORT_AT_KEY = "kdm:last-export-at";
 const BACKUP_REMINDER_KEY = "kdm:backup-reminder-dismissed";
@@ -57,6 +66,8 @@ interface Props {
   hasSyncKey?: boolean;
   /** ログアウト完了時に呼ばれる */
   onLogout?: () => void;
+  /** パスキー操作用 SyncRepository（Pro ユーザーのみ） */
+  syncRepository?: typeof cloudflareSyncRepository;
 }
 
 const RETENTION_OPTIONS = [7, 14, 30, 60, 90] as const;
@@ -82,6 +93,7 @@ export function SettingsSheet({
   lastSyncAt,
   hasSyncKey = false,
   onLogout,
+  syncRepository,
 }: Props) {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -112,6 +124,72 @@ export function SettingsSheet({
   const [backupReminderDismissed, setBackupReminderDismissed] = useState(false);
 
   const lastExportAt = localStorage.getItem(LAST_EXPORT_AT_KEY);
+
+  // パスキー管理
+  const [passkeyCredentials, setPasskeyCredentials] = useState<PasskeyCredential[]>([]);
+  const [passkeySetupPhase, setPasskeySetupPhase] = useState<
+    "idle" | "creating" | "naming" | "saving"
+  >("idle");
+  const [newDeviceName, setNewDeviceName] = useState("");
+  const [pendingCredential, setPendingCredential] = useState<RegistrationResponseJSON | null>(null);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (hasSyncKey && syncRepository) {
+      syncRepository
+        .listPasskeyCredentials()
+        .then(setPasskeyCredentials)
+        .catch(() => {});
+    }
+  }, [hasSyncKey, syncRepository]);
+
+  const handlePasskeySetupBegin = async () => {
+    if (!syncRepository) return;
+    setPasskeyError(null);
+    setPasskeySetupPhase("creating");
+    try {
+      const options = await syncRepository.beginPasskeyRegistration();
+      const credential = await createPasskeyCredential(options);
+      setPendingCredential(credential);
+      setNewDeviceName(getDefaultDeviceName());
+      setPasskeySetupPhase("naming");
+    } catch (e) {
+      setPasskeyError(e instanceof Error ? e.message : "パスキーの作成に失敗しました");
+      setPasskeySetupPhase("idle");
+    }
+  };
+
+  const handlePasskeySetupComplete = async () => {
+    if (!syncRepository || !pendingCredential) return;
+    setPasskeyError(null);
+    setPasskeySetupPhase("saving");
+    try {
+      await syncRepository.completePasskeyRegistration(
+        pendingCredential,
+        newDeviceName || getDefaultDeviceName()
+      );
+      authService.savePasskeyEnabled(true);
+      const updated = await syncRepository.listPasskeyCredentials();
+      setPasskeyCredentials(updated);
+      setPasskeySetupPhase("idle");
+      setPendingCredential(null);
+    } catch (e) {
+      setPasskeyError(e instanceof Error ? e.message : "パスキーの保存に失敗しました");
+      setPasskeySetupPhase("idle");
+    }
+  };
+
+  const handlePasskeyDelete = async (credentialId: string) => {
+    if (!syncRepository) return;
+    try {
+      await syncRepository.deletePasskeyCredential(credentialId);
+      const updated = await syncRepository.listPasskeyCredentials();
+      setPasskeyCredentials(updated);
+      if (updated.length === 0) authService.savePasskeyEnabled(false);
+    } catch (e) {
+      setPasskeyError(e instanceof Error ? e.message : "削除に失敗しました");
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -594,6 +672,136 @@ export function SettingsSheet({
                   {hasSyncKey ? "再入力" : "入力する"}
                 </button>
               </SettingRow>
+
+              {/* パスキー（2段階認証）管理 */}
+              {hasSyncKey && syncRepository && (
+                <div style={{ marginTop: 4 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "10px 0",
+                      borderTop: "1px solid var(--border)",
+                    }}
+                  >
+                    <Fingerprint size={18} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+                        2段階認証（パスキー）
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                        {passkeyCredentials.length === 0
+                          ? "未設定"
+                          : `${passkeyCredentials.length}台のデバイスで設定済み`}
+                      </div>
+                    </div>
+                    {passkeySetupPhase === "idle" && (
+                      <button onClick={handlePasskeySetupBegin} style={btnStyle("#6366f1")}>
+                        <Plus size={13} style={{ marginRight: 2 }} />
+                        追加
+                      </button>
+                    )}
+                    {passkeySetupPhase === "creating" && (
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>作成中…</span>
+                    )}
+                  </div>
+
+                  {/* 命名フェーズ */}
+                  {passkeySetupPhase === "naming" && (
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        background: "var(--bg-secondary, #f5f5f5)",
+                        borderRadius: 8,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <p
+                        style={{ margin: "0 0 8px", fontSize: 13, color: "var(--text-secondary)" }}
+                      >
+                        このデバイスの名前を入力してください
+                      </p>
+                      <input
+                        type="text"
+                        value={newDeviceName}
+                        onChange={(e) => setNewDeviceName(e.target.value)}
+                        placeholder="例: iPhone 15"
+                        style={{
+                          width: "100%",
+                          padding: "8px 10px",
+                          border: "1px solid var(--border)",
+                          borderRadius: 6,
+                          fontSize: 14,
+                          background: "var(--input-bg)",
+                          color: "var(--text-primary)",
+                          boxSizing: "border-box",
+                          marginBottom: 8,
+                        }}
+                      />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          onClick={() => {
+                            setPasskeySetupPhase("idle");
+                            setPendingCredential(null);
+                          }}
+                          style={{ ...btnStyle("#888"), flex: 1 }}
+                        >
+                          キャンセル
+                        </button>
+                        <button
+                          onClick={handlePasskeySetupComplete}
+                          style={{ ...btnStyle("#6366f1"), flex: 2 }}
+                        >
+                          保存する
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 登録済みデバイス一覧 */}
+                  {passkeyCredentials.map((cred) => (
+                    <div
+                      key={cred.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 0 6px 26px",
+                        borderTop: "1px solid var(--border)",
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, color: "var(--text-primary)" }}>
+                          {cred.deviceName || "デバイス"}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                          {new Date(cred.createdAt).toLocaleDateString("ja-JP")}登録
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handlePasskeyDelete(cred.id)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          padding: 4,
+                          color: "#ef4444",
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+
+                  {passkeyError && (
+                    <p style={{ margin: "6px 0 0", fontSize: 12, color: "#dc2626" }}>
+                      {passkeyError}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <SettingRow
                 icon={<LogOut size={18} />}
                 label="ログアウト"
@@ -1182,4 +1390,72 @@ function ComingSoonRow({
       </span>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// パスキー登録ヘルパー（settings-sheet 用）
+// ---------------------------------------------------------------------------
+
+function base64UrlToArrayBuffer(s: string): ArrayBuffer {
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = padded.length % 4;
+  const b64 = pad === 0 ? padded : padded + "====".slice(pad);
+  const raw = atob(b64);
+  const buf = new ArrayBuffer(raw.length);
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return buf;
+}
+
+function uint8ArrayToBase64Url(bytes: Uint8Array): string {
+  let str = "";
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function createPasskeyCredential(
+  options: PublicKeyCredentialCreationOptionsJSON
+): Promise<RegistrationResponseJSON> {
+  const credential = (await navigator.credentials.create({
+    publicKey: {
+      ...options,
+      challenge: base64UrlToArrayBuffer(options.challenge),
+      user: {
+        ...options.user,
+        id: base64UrlToArrayBuffer(options.user.id),
+      },
+      excludeCredentials: options.excludeCredentials?.map((c) => ({
+        id: base64UrlToArrayBuffer(c.id),
+        type: "public-key" as const,
+      })),
+    },
+  })) as PublicKeyCredential | null;
+
+  if (!credential) throw new Error("パスキーの作成がキャンセルされました");
+
+  if (typeof credential.toJSON === "function") {
+    return credential.toJSON() as RegistrationResponseJSON;
+  }
+  const resp = credential.response as AuthenticatorAttestationResponse;
+  return {
+    id: credential.id,
+    rawId: uint8ArrayToBase64Url(new Uint8Array(credential.rawId)),
+    response: {
+      clientDataJSON: uint8ArrayToBase64Url(new Uint8Array(resp.clientDataJSON)),
+      attestationObject: uint8ArrayToBase64Url(new Uint8Array(resp.attestationObject)),
+      transports: (resp.getTransports?.() ?? []) as AuthenticatorTransportFuture[],
+    },
+    type: "public-key",
+    clientExtensionResults: credential.getClientExtensionResults() as Record<string, unknown>,
+  };
+}
+
+function getDefaultDeviceName(): string {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return "iPhone";
+  if (/iPad/.test(ua)) return "iPad";
+  if (/Android/.test(ua)) return "Android";
+  if (/Mac/.test(ua)) return "Mac";
+  if (/Windows/.test(ua)) return "Windows PC";
+  return "デバイス";
 }

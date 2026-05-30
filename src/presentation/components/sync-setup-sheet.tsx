@@ -7,10 +7,11 @@
  * 新規登録は現在招待制のため UI を非表示とする。
  */
 import { useState } from "react";
-import { X, Eye, EyeOff, Loader2 } from "lucide-react";
+import { X, Eye, EyeOff, Loader2, Fingerprint } from "lucide-react";
 import { cloudflareSyncRepository } from "@infrastructure/sync/cloudflare-sync-repository";
 import { authService } from "@infrastructure/sync/auth-service";
 import { webCryptoService } from "@infrastructure/sync/web-crypto-service";
+import type { AuthenticationResponseJSON } from "@application/ports/sync-repository";
 
 /** Uint8Array を base64 文字列に変換 */
 function uint8ToBase64(bytes: Uint8Array): string {
@@ -44,7 +45,14 @@ interface SyncSetupSheetProps {
   onSuccess: (key: CryptoKey) => void;
 }
 
-type ModeType = "auth" | "reenter" | "request";
+type ModeType = "auth" | "reenter" | "request" | "passkey";
+
+interface PasskeyData {
+  session: string;
+  challenge: string;
+  credentialIds: string[];
+  salt: string;
+}
 
 export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetProps) {
   const [email, setEmail] = useState("");
@@ -55,6 +63,8 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [requestSent, setRequestSent] = useState(false);
   const [requestMode, setRequestMode] = useState(false);
+  const [passkeyMode, setPasskeyMode] = useState(false);
+  const [passkeyData, setPasskeyData] = useState<PasskeyData | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -62,7 +72,11 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
 
   // ログイン済みだが鍵がない状態（ページリロード後）
   const baseMode: "auth" | "reenter" = authService.isLoggedIn() ? "reenter" : "auth";
-  const mode: ModeType = baseMode === "auth" && requestMode ? "request" : baseMode;
+  const mode: ModeType = passkeyMode
+    ? "passkey"
+    : baseMode === "auth" && requestMode
+      ? "request"
+      : baseMode;
 
   const isLoading = isSubmitting;
 
@@ -71,18 +85,51 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
     setIsSubmitting(true);
     try {
       const passwordHash = await hashPassphrase(passphrase);
-      const { accessToken, refreshToken, salt } = await cloudflareSyncRepository.login(
-        email,
-        passwordHash
-      );
-      authService.saveTokens(accessToken, refreshToken);
-      authService.saveEmail(email);
-      authService.saveSalt(salt);
+      const result = await cloudflareSyncRepository.login(email, passwordHash);
 
-      const key = await _deriveKeyDirectly(passphrase, salt);
+      if ("requires_passkey" in result) {
+        setPasskeyData({
+          session: result.passkey_session,
+          challenge: result.challenge,
+          credentialIds: result.credential_ids,
+          salt: result.salt,
+        });
+        setPasskeyMode(true);
+        return;
+      }
+
+      authService.saveTokens(result.accessToken, result.refreshToken);
+      authService.saveEmail(email);
+      authService.saveSalt(result.salt);
+
+      const key = await _deriveKeyDirectly(passphrase, result.salt);
       onSuccess(key);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "ログインに失敗しました");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handlePasskeyVerify = async () => {
+    if (!passkeyData) return;
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      const assertion = await getPasskeyAssertion(passkeyData.challenge, passkeyData.credentialIds);
+      const result = await cloudflareSyncRepository.verifyPasskeyAuth(
+        passkeyData.session,
+        assertion
+      );
+      authService.saveTokens(result.accessToken, result.refreshToken);
+      authService.saveEmail(email);
+      authService.saveSalt(passkeyData.salt);
+      authService.savePasskeyEnabled(true);
+
+      const key = await _deriveKeyDirectly(passphrase, passkeyData.salt);
+      onSuccess(key);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "認証に失敗しました");
     } finally {
       setIsSubmitting(false);
     }
@@ -192,11 +239,13 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
               color: "var(--text-primary)",
             }}
           >
-            {mode === "reenter"
-              ? "パスフレーズを入力"
-              : mode === "request"
-                ? "同期アカウントを申請する"
-                : "クラウド同期を設定する"}
+            {mode === "passkey"
+              ? "デバイス認証"
+              : mode === "reenter"
+                ? "パスフレーズを入力"
+                : mode === "request"
+                  ? "同期アカウントを申請する"
+                  : "クラウド同期を設定する"}
           </h2>
           <button
             onClick={onClose}
@@ -214,7 +263,57 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
           </button>
         </div>
 
-        {mode === "reenter" ? (
+        {mode === "passkey" ? (
+          /* --- パスキー認証モード --- */
+          <div style={{ textAlign: "center" }}>
+            <div
+              style={{
+                margin: "8px 0 20px",
+                color: "var(--text-secondary)",
+                fontSize: 14,
+                lineHeight: 1.6,
+              }}
+            >
+              <p style={{ margin: "0 0 8px" }}>
+                登録済みのパスキー（指紋・顔認証）で本人確認を行います。
+              </p>
+              <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
+                ログインにはデバイスの生体認証が必要です。
+              </p>
+            </div>
+            <div style={{ margin: "28px 0", display: "flex", justifyContent: "center" }}>
+              <Fingerprint size={64} color="#6366f1" strokeWidth={1.2} />
+            </div>
+            {errorMessage && <ErrorBanner message={errorMessage} />}
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <button
+                onClick={() => {
+                  setPasskeyMode(false);
+                  setPasskeyData(null);
+                  setErrorMessage(null);
+                }}
+                disabled={isLoading}
+                style={secondaryBtnStyle}
+              >
+                戻る
+              </button>
+              <button
+                onClick={handlePasskeyVerify}
+                disabled={isLoading}
+                style={primaryBtnStyle(isLoading)}
+              >
+                {isLoading ? (
+                  <LoadingContent label="認証中..." />
+                ) : (
+                  <>
+                    <Fingerprint size={15} />
+                    認証する
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        ) : mode === "reenter" ? (
           /* --- 鍵再入力モード --- */
           <div>
             <p
@@ -433,6 +532,64 @@ export function SyncSetupSheet({ isOpen, onClose, onSuccess }: SyncSetupSheetPro
       </div>
     </div>
   );
+}
+
+// --- パスキー WebAuthn ヘルパー ---
+
+function base64UrlToArrayBuffer(s: string): ArrayBuffer {
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = padded.length % 4;
+  const b64 = pad === 0 ? padded : padded + "====".slice(pad);
+  const raw = atob(b64);
+  const buf = new ArrayBuffer(raw.length);
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return buf;
+}
+
+function uint8ArrayToBase64Url(bytes: Uint8Array): string {
+  let str = "";
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function getPasskeyAssertion(
+  challenge: string,
+  credentialIds: string[]
+): Promise<AuthenticationResponseJSON> {
+  const credential = (await navigator.credentials.get({
+    publicKey: {
+      challenge: base64UrlToArrayBuffer(challenge),
+      allowCredentials: credentialIds.map((id) => ({
+        id: base64UrlToArrayBuffer(id),
+        type: "public-key" as const,
+      })),
+      userVerification: "preferred",
+      timeout: 60000,
+    },
+  })) as PublicKeyCredential | null;
+
+  if (!credential) throw new Error("認証がキャンセルされました");
+
+  // PublicKeyCredential を JSON 形式にシリアライズ
+  if (typeof credential.toJSON === "function") {
+    return credential.toJSON() as AuthenticationResponseJSON;
+  }
+  const resp = credential.response as AuthenticatorAssertionResponse;
+  return {
+    id: credential.id,
+    rawId: uint8ArrayToBase64Url(new Uint8Array(credential.rawId)),
+    response: {
+      clientDataJSON: uint8ArrayToBase64Url(new Uint8Array(resp.clientDataJSON)),
+      authenticatorData: uint8ArrayToBase64Url(new Uint8Array(resp.authenticatorData)),
+      signature: uint8ArrayToBase64Url(new Uint8Array(resp.signature)),
+      userHandle: resp.userHandle
+        ? uint8ArrayToBase64Url(new Uint8Array(resp.userHandle))
+        : undefined,
+    },
+    type: "public-key",
+    clientExtensionResults: credential.getClientExtensionResults() as Record<string, unknown>,
+  };
 }
 
 // --- PBKDF2 鍵導出（コンポーネント内で直接呼ぶ用） ---

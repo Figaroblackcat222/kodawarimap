@@ -4,7 +4,15 @@
  * Phase 4: 写真同期メソッドを実装。
  * 401 レスポンス時はトークンリフレッシュ後に1回リトライする。
  */
-import type { SyncRepository, PinSyncRecord } from "@application/ports/sync-repository";
+import type {
+  SyncRepository,
+  PinSyncRecord,
+  LoginResult,
+  PasskeyCredential,
+  PublicKeyCredentialCreationOptionsJSON,
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
+} from "@application/ports/sync-repository";
 import { authService, API_BASE } from "./auth-service";
 
 async function fetchWithAuth(input: RequestInfo, init: RequestInit = {}): Promise<Response> {
@@ -94,16 +102,7 @@ export const cloudflareSyncRepository: SyncRepository = {
     }
   },
 
-  async login(
-    email: string,
-    passwordHash: string
-  ): Promise<{
-    accessToken: string;
-    refreshToken: string;
-    salt: string;
-    plan: string;
-    role: string;
-  }> {
+  async login(email: string, passwordHash: string): Promise<LoginResult> {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -113,15 +112,11 @@ export const cloudflareSyncRepository: SyncRepository = {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(data.error ?? `Login failed: ${res.status}`);
     }
-    const data = (await res.json()) as {
-      accessToken: string;
-      refreshToken: string;
-      salt: string;
-      plan: string;
-      role: string;
-    };
-    authService.savePlan(data.plan ?? "free");
-    authService.saveRole(data.role ?? "user");
+    const data = (await res.json()) as LoginResult & { plan?: string; role?: string };
+    if (!("requires_passkey" in data)) {
+      authService.savePlan(data.plan ?? "free");
+      authService.saveRole(data.role ?? "user");
+    }
     return data;
   },
 
@@ -147,6 +142,85 @@ export const cloudflareSyncRepository: SyncRepository = {
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(data.error ?? `Logout failed: ${res.status}`);
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // パスキー（WebAuthn 2FA）
+  // ---------------------------------------------------------------------------
+
+  async beginPasskeyRegistration(): Promise<PublicKeyCredentialCreationOptionsJSON> {
+    const res = await fetchWithAuth(`${API_BASE}/api/webauthn/register/begin`, { method: "POST" });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error ?? `beginPasskeyRegistration failed: ${res.status}`);
+    }
+    return res.json() as Promise<PublicKeyCredentialCreationOptionsJSON>;
+  },
+
+  async completePasskeyRegistration(
+    credential: RegistrationResponseJSON,
+    deviceName: string
+  ): Promise<void> {
+    const res = await fetchWithAuth(`${API_BASE}/api/webauthn/register/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential, deviceName }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+      const msg = data.detail
+        ? `${data.error}: ${data.detail}`
+        : (data.error ?? `completePasskeyRegistration failed: ${res.status}`);
+      throw new Error(msg);
+    }
+  },
+
+  async verifyPasskeyAuth(
+    passkeySession: string,
+    assertion: AuthenticationResponseJSON
+  ): Promise<{ accessToken: string; refreshToken: string; plan: string; role: string }> {
+    const res = await fetch(`${API_BASE}/api/webauthn/auth/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passkey_session: passkeySession, assertion }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+      const msg = data.detail
+        ? `${data.error}: ${data.detail}`
+        : (data.error ?? `verifyPasskeyAuth failed: ${res.status}`);
+      throw new Error(msg);
+    }
+    const data = (await res.json()) as {
+      accessToken: string;
+      refreshToken: string;
+      plan: string;
+      role: string;
+    };
+    authService.savePlan(data.plan ?? "free");
+    authService.saveRole(data.role ?? "user");
+    return data;
+  },
+
+  async listPasskeyCredentials(): Promise<PasskeyCredential[]> {
+    const res = await fetchWithAuth(`${API_BASE}/api/webauthn/credentials`, { method: "GET" });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error ?? `listPasskeyCredentials failed: ${res.status}`);
+    }
+    const data = (await res.json()) as { credentials: PasskeyCredential[] };
+    return data.credentials;
+  },
+
+  async deletePasskeyCredential(credentialId: string): Promise<void> {
+    const res = await fetchWithAuth(
+      `${API_BASE}/api/webauthn/credentials/${encodeURIComponent(credentialId)}`,
+      { method: "DELETE" }
+    );
+    if (!res.ok && res.status !== 204) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error ?? `deletePasskeyCredential failed: ${res.status}`);
     }
   },
 

@@ -1550,6 +1550,7 @@ export function MapView() {
             await db.key_store.delete("encryption-key");
             setEncryptionKey(null);
           }}
+          syncRepository={encryptionKey ? cloudflareSyncRepository : undefined}
         />
       )}
       <SyncSetupSheet

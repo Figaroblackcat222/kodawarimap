@@ -56,6 +56,11 @@ function createMockSyncRepository(): SyncRepository {
     pushPhotoBinary: vi.fn().mockRejectedValue(new Error("Not implemented")),
     fetchPhotoBinary: vi.fn().mockRejectedValue(new Error("Not implemented")),
     deletePhoto: vi.fn().mockRejectedValue(new Error("Not implemented")),
+    beginPasskeyRegistration: vi.fn().mockRejectedValue(new Error("Not implemented")),
+    completePasskeyRegistration: vi.fn().mockRejectedValue(new Error("Not implemented")),
+    verifyPasskeyAuth: vi.fn().mockRejectedValue(new Error("Not implemented")),
+    listPasskeyCredentials: vi.fn().mockResolvedValue([]),
+    deletePasskeyCredential: vi.fn().mockResolvedValue(undefined),
   };
 }
 

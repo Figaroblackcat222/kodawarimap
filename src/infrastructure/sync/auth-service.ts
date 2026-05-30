@@ -5,7 +5,9 @@
  * 並行リフレッシュ呼び出しは同一 Promise を返す（競合防止）。
  */
 
-export const API_BASE = "https://kodawarimap-api.figaroblackcat.workers.dev";
+export const API_BASE =
+  (import.meta.env.VITE_API_BASE as string | undefined) ??
+  "https://kodawarimap-api.figaroblackcat.workers.dev";
 
 const STORAGE_KEY = {
   ACCESS_TOKEN: "kdm:access-token",
@@ -14,6 +16,7 @@ const STORAGE_KEY = {
   SYNC_SALT: "kdm:sync-salt",
   USER_PLAN: "kdm:user-plan",
   USER_ROLE: "kdm:user-role",
+  PASSKEY_ENABLED: "kdm:passkey-enabled",
 } as const;
 
 /** JWT ペイロードの型（最低限） */
@@ -89,12 +92,21 @@ export const authService = {
     return null;
   },
 
+  savePasskeyEnabled(enabled: boolean): void {
+    localStorage.setItem(STORAGE_KEY.PASSKEY_ENABLED, enabled ? "1" : "0");
+  },
+
+  isPasskeyEnabled(): boolean {
+    return localStorage.getItem(STORAGE_KEY.PASSKEY_ENABLED) === "1";
+  },
+
   clearAll(): void {
     this.clearTokens();
     localStorage.removeItem(STORAGE_KEY.USER_EMAIL);
     localStorage.removeItem(STORAGE_KEY.SYNC_SALT);
     localStorage.removeItem(STORAGE_KEY.USER_PLAN);
     localStorage.removeItem(STORAGE_KEY.USER_ROLE);
+    localStorage.removeItem(STORAGE_KEY.PASSKEY_ENABLED);
   },
 
   // ---------------------------------------------------------------------------

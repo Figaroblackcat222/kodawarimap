@@ -27,6 +27,7 @@
 - **Clean Architecture**: Exif解析・ピンライフサイクル・ゴミ箱・オフライン計算が純粋ロジック。将来の公開サーフェス分離が自然に実現。詳細は [ADR-005](architecture-decisions/ADR-005-clean-architecture.md)
 - **クラウド/公開のデータ戦略**: バックアップ＝メタ＋サムネ、公開＝別ストア。コストと核心価値（プライバシー）を両立。詳細は [ADR-006](architecture-decisions/ADR-006-cloud-data-strategy.md)
 - **GPSマッチング戦略**: 半径30m＋同日判定で「同じ場所・同じ体験」を自動判別。詳細は [ADR-007](architecture-decisions/ADR-007-gps-matching-strategy.md)
+- **パスキー2FA（WebAuthn）**: Proユーザーのログイン時にパスキー（指紋/Face ID）で2段階認証。TOTP より UX 良くデバイス登録の証明にもなる。詳細は [ADR-009](architecture-decisions/ADR-009-passkey-2fa.md)
 
 ## ディレクトリ構成（Clean Architecture）
 
@@ -67,8 +68,9 @@ src/
 │   │   └── dexie-sync-queue-repository.ts # SyncQueueRepository実装（coalesceで重複排除）
 │   ├── sync/
 │   │   ├── web-crypto-service.ts  # CryptoService実装（PBKDF2 600K + AES-256-GCM。バイナリは先頭12bytesがIV）
-│   │   ├── auth-service.ts        # JWT管理・自動リフレッシュ・並行リフレッシュは同一Promise共有。plan/role をlocalStorageに保存（kdm:user-plan/kdm:user-role）
-│   │   ├── cloudflare-sync-repository.ts # Workers API実装（401時自動リフレッシュ・写真はmultipart・requestRegistration追加）
+│   │   ├── auth-service.ts        # JWT管理・自動リフレッシュ・並行リフレッシュは同一Promise共有。plan/role/passkey-enabled をlocalStorageに保存
+│   │   │                          # API_BASE は VITE_API_BASE 環境変数優先（ローカル開発用）
+│   │   ├── cloudflare-sync-repository.ts # Workers API実装（401時自動リフレッシュ・写真はmultipart・requestRegistration・パスキー5メソッド追加）
 │   │   ├── tab-coordinator.ts     # Web Locks APIリーダー選出・BroadcastChannel完了通知
 │   │   └── node-id.ts             # localStorage: kdm:node-id でデバイスID管理
 │   ├── admin/
@@ -103,7 +105,7 @@ src/
         │                           # 現在地マーカー: locationMarkerRef 管理・青点(18px)＋2秒パルスアニメーション
         │                           # ピン作成時: findAdminName(県市名)＋getPlaceName(PMTiles地区名)を結合してlocationフィールドに設定（例:「東京都渋谷区恵比寿」）。タイトル自動設定もadminNameにフォールバック
         │                           # マーカーポップアップのgetPhotoInfo: thumbnailPhotoIdを優先・shoppingItemId写真を除外してサムネイルを取得
-        ├── sync-setup-sheet.tsx    # 同期セットアップ（auth/申請(request)/reenterの3モード。authモード: ログイン専用＋「申請する」リンク。requestモード: メール+パスフレーズ確認+salt生成→requestRegistration。reenterモード: パスフレーズのみ）
+        ├── sync-setup-sheet.tsx    # 同期セットアップ（auth/申請(request)/reenter/passkeyの4モード。passkeyモード: ログイン後 requires_passkey が返った場合に自動遷移・生体認証→verifyPasskeyAuth→onSuccess）
         ├── sync-status-indicator.tsx # 同期状態表示（top:92 right:8・設定ボタン下）
         │                           # idle=緑チェック（タップで即時同期）/syncing=スピナー/error=橙三角（タップ再試行）/offline=灰WifiOff
         │                           # idle/error のみクリック可・unauthenticated は非表示
@@ -113,7 +115,7 @@ src/
         ├── pin-detail-sheet.tsx    # ピン詳細・編集・lightbox（syncRepository/encryptionKey props経由で遅延写真ロード。遅延ロード時にencryptedMeta/metaIvを復号してshoppingItemIdを復元。handleSave時にpendingDeleteIdsをsyncRepository.deletePhoto()でサーバーからも削除。品目写真サムネイルタップで拡大表示（lightboxItemPhotoIdステート）。初回ロード時にexif未保存の既存写真もblobから再抽出しupdateExif()でDB永続化）
         ├── cluster-sheet.tsx       # 同座標ピン一覧シート
         ├── current-location-button.tsx # 現在地flyToボタン（top:160 left:8）・取得後に flyTo＋青点マーカーを地図上に表示
-        ├── settings-sheet.tsx      # 設定（地図・エクスポート・インポート・同期セクション（Proバッジ・ログアウト時onLogoutコールバックでkey_store削除）・バックアップ30日警告）
+        ├── settings-sheet.tsx      # 設定（地図・エクスポート・インポート・同期セクション（Proバッジ・パスキー管理UI（syncRepository prop）・ログアウト時onLogoutコールバックでkey_store削除）・バックアップ30日警告）
         ├── pwa-update-dialog.tsx   # PWA更新通知ダイアログ
         ├── message-ticker.tsx      # ガイドメッセージティッカー（常時サイクル・ピン選択中も同じメッセージを流し続ける）
         └── geocoder-search.tsx     # Nominatim地名検索（collapsed: top:48 right:96・expanded: top:48 left:50 right:96）
@@ -131,14 +133,17 @@ workers/                           # Cloudflare Workers バックエンド
 │   │   ├── cors.ts                # CORS（localhost常時許可・CORS_ORIGINで本番許可・Allow-Methods: GET/POST/PUT/PATCH/DELETE/OPTIONS）
 │   │   └── auth.ts                # JWT検証（requireAuth → {userId, plan, role}・DBから毎回取得）・requirePro・requireAdmin
 │   └── routes/
-│       ├── auth.ts                # 認証API（register（REGISTRATION_OPEN制御）/login（plan/role返却）/refresh/logout/request-registration・ブルートフォース対策）
+│       ├── auth.ts                # 認証API（register/login（パスキー登録済みなら passkey_session 返却）/refresh/logout/request-registration・ブルートフォース対策）
 │       ├── pins.ts                # ピン同期API（since取得・UPSERT・tombstone）全エンドポイントrequirePro
 │       ├── photos.ts              # 写真API（list（encryptedMeta/metaIv含む）・R2アップロード/取得/削除）全エンドポイントrequirePro
+│       ├── webauthn.ts            # パスキー2FA API（requirePro）: register/begin・register/complete・auth/verify・credentials GET/DELETE
+│       │                          # @simplewebauthn/server v13。rpIdはOriginヘッダーから導出（localhost/本番自動判別）
 │       └── admin.ts               # 管理API（全エンドポイントrequireAdmin）: GET/PATCH /api/admin/users・GET /api/admin/registrations・POST approve・DELETE reject
 ├── migrations/
 │   ├── 0001_initial.sql           # D1スキーマ（users・pins_sync・photos_sync・refresh_tokens・login_attempts）
 │   ├── 0002_add_plan_and_role.sql # usersにplan(DEFAULT 'pro')・role(DEFAULT 'user')追加（既存ユーザーgrandfather）
-│   └── 0003_registration_requests.sql # registration_requests（id/email/password_hash/salt/requested_at）
+│   ├── 0003_registration_requests.sql # registration_requests（id/email/password_hash/salt/requested_at）
+│   └── 0004_webauthn.sql          # webauthn_credentials（公開鍵・counter・device_name）・webauthn_challenges（challenge PK・TTL 5分）
 └── wrangler.toml                  # DB: kodawarimap-sync・R2: kodawarimap-photos・cron: 0 3 * * *・REGISTRATION_OPEN='false'
 scripts/
 ├── build-admin-centroids.mjs  # 国土数値情報N03 GeoJSONから市区町村重心点GeoJSONを生成 → R2 admin/municipalities.geojson にアップロード
