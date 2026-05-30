@@ -44,6 +44,7 @@ import { db } from "@infrastructure/persistence/db";
 import { findAdminName } from "@infrastructure/geocoder/admin-geocoder";
 import { sharePinToGroup } from "@application/use-cases/share-pin-to-group";
 import { unsharePin } from "@application/use-cases/unshare-pin";
+import { publishUserKeypair } from "@application/use-cases/publish-user-keypair";
 
 const repo = dexiePinRepository;
 
@@ -517,6 +518,10 @@ export function MapView() {
   const [availableGroups, setAvailableGroups] = useState<
     Array<{ groupId: string; groupName: string }>
   >([]);
+  const handleGroupsLoaded = useCallback(
+    (groups: Array<{ groupId: string; groupName: string }>) => setAvailableGroups(groups),
+    []
+  );
 
   const tagKeywords = useMemo(() => {
     const set = new Set<string>();
@@ -543,6 +548,31 @@ export function MapView() {
     const id = setInterval(triggerSync, 30 * 60 * 1000);
     return () => clearInterval(id);
   }, [encryptionKey, triggerSync]);
+
+  // encryptionKey 確定時に RSA-OAEP 鍵ペアを自動生成・公開（冪等・初回のみ実際に生成）
+  useEffect(() => {
+    if (!encryptionKey) return;
+    (async () => {
+      try {
+        await publishUserKeypair({
+          keyManagementService: webKeyManagementService,
+          keySyncRepository: cloudflarekeySyncRepository,
+          encryptionKey,
+          savePrivateKey: async (key) => {
+            await db.key_store.put({ id: "group-private-key", key, createdAt: new Date() });
+          },
+          getPrivateKey: async () => {
+            const rec = await db.key_store.get("group-private-key");
+            return rec?.key ?? null;
+          },
+        });
+        const pkRecord = await db.key_store.get("group-private-key");
+        if (pkRecord) setPrivateKey(pkRecord.key);
+      } catch (e) {
+        console.warn("[map-view] publishUserKeypair failed:", e);
+      }
+    })();
+  }, [encryptionKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 起動時チェック: IndexedDB から鍵を復元、なければセットアップシートを開く
   useEffect(() => {
@@ -1684,7 +1714,7 @@ export function MapView() {
             return rec?.key ?? null;
           }}
           pinRepository={repo}
-          onGroupsLoaded={(groups) => setAvailableGroups(groups)}
+          onGroupsLoaded={handleGroupsLoaded}
         />
       )}
       {poiLoadingCount > 0 && (

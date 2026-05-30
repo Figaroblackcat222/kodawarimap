@@ -287,7 +287,9 @@ export function FamilyGroupSheet({
           <X size={20} />
         </button>
         <Users size={18} color="#6366f1" />
-        <span style={{ fontWeight: 600, fontSize: 16 }}>家族共有</span>
+        <span style={{ fontWeight: 600, fontSize: 16, color: "var(--text-primary)" }}>
+          家族共有
+        </span>
       </div>
 
       {/* 注意事項バナー */}
@@ -346,7 +348,9 @@ export function FamilyGroupSheet({
             marginBottom: 8,
           }}
         >
-          <span style={{ fontWeight: 600, fontSize: 14 }}>グループ</span>
+          <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text-primary)" }}>
+            グループ
+          </span>
           {!creating && (
             <button
               onClick={() => setCreating(true)}
@@ -476,7 +480,9 @@ export function FamilyGroupSheet({
       {/* 選択グループのメンバー */}
       {selectedGroupId && (
         <div style={{ padding: "12px 16px 0" }}>
-          <span style={{ fontWeight: 600, fontSize: 14 }}>メンバー：{selectedGroup?.name}</span>
+          <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text-primary)" }}>
+            メンバー：{selectedGroup?.name}
+          </span>
           {membersLoading ? (
             <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8 }}>読み込み中…</p>
           ) : (
@@ -678,7 +684,16 @@ export function FamilyGroupSheet({
           {/* 招待 */}
           {selectedGroup?.role === "owner" && (
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>メンバーを招待</div>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  marginBottom: 6,
+                  color: "var(--text-primary)",
+                }}
+              >
+                メンバーを招待
+              </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input
                   value={inviteEmail}
