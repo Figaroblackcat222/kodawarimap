@@ -204,4 +204,8 @@ export const dexiePhotoRepository: PhotoRepository = {
     const records = await db.photos.filter((r) => r.syncedAt === undefined).toArray();
     return records.map(recordToPhoto);
   },
+
+  async resetSyncedAt(pinId: string): Promise<void> {
+    await db.photos.where("pinId").equals(pinId).modify({ syncedAt: undefined });
+  },
 };

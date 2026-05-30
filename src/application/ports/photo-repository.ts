@@ -25,4 +25,6 @@ export interface PhotoRepository {
   markSynced(id: string, syncedAt: Date): Promise<void>;
   /** syncedAt が未設定の写真を取得する（未同期写真の push に使用） */
   findUnsyncedPhotos(): Promise<Photo[]>;
+  /** 指定ピンの全写真の syncedAt をリセットする（share/unshare 時に再アップロードをトリガーするために使用） */
+  resetSyncedAt(pinId: PinId): Promise<void>;
 }

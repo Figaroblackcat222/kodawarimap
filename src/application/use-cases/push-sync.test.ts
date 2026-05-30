@@ -287,6 +287,7 @@ function createMockPhotoRepository(
     findModifiedSince: vi.fn().mockResolvedValue([]),
     markSynced: vi.fn().mockResolvedValue(undefined),
     findUnsyncedPhotos: vi.fn().mockResolvedValue(unsyncedPhotos),
+    resetSyncedAt: vi.fn().mockResolvedValue(undefined),
   };
 }
 

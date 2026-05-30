@@ -1649,6 +1649,7 @@ export function MapView() {
                     webKeyManagementService,
                     cloudflareGroupSyncRepository,
                     repo,
+                    dexiePhotoRepository,
                     cloudflareSyncRepository,
                     encryptionKey,
                     webCryptoService
@@ -1677,6 +1678,7 @@ export function MapView() {
                       webKeyManagementService,
                       cloudflareGroupSyncRepository,
                       repo,
+                      dexiePhotoRepository,
                       cloudflareSyncRepository,
                       encryptionKey,
                       webCryptoService

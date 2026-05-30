@@ -12,6 +12,7 @@ import type { Pin, PinReaction, ShoppingItem } from "@domain/entities/pin";
 import type { KeyManagementService } from "@application/ports/key-management-service";
 import type { GroupSyncRepository } from "@application/ports/group-sync-repository";
 import type { PinRepository } from "@application/ports/pin-repository";
+import type { PhotoRepository } from "@application/ports/photo-repository";
 import type { SyncRepository, PinSyncRecord } from "@application/ports/sync-repository";
 import type { CryptoService } from "@application/ports/crypto-service";
 import { nextHlc } from "@domain/value-objects/hlc";
@@ -57,6 +58,7 @@ export async function unsharePin(
   keyMgmt: KeyManagementService,
   groupSyncRepo: GroupSyncRepository,
   pinRepo: PinRepository,
+  photoRepo: PhotoRepository,
   syncRepo: SyncRepository,
   encryptionKey: CryptoKey,
   cryptoService: CryptoService
@@ -181,4 +183,7 @@ export async function unsharePin(
     space: undefined,
   };
   await pinRepo.save(updatedPin);
+
+  // 写真の syncedAt をリセットして個人 push-sync で再アップロードをトリガー
+  await photoRepo.resetSyncedAt(pin.id);
 }
