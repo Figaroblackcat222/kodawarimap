@@ -84,6 +84,7 @@ async function handleRegisterBegin(request: Request, env: Env): Promise<Response
     attestationType: "none",
     excludeCredentials,
     authenticatorSelection: {
+      authenticatorAttachment: "platform",
       residentKey: "preferred",
       userVerification: "preferred",
     },
