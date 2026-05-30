@@ -89,19 +89,23 @@ function pinToPayload(pin: Pin): PinPayload {
 export async function rotateGroupKey(
   groupId: string,
   currentKeyVersion: number,
-  _currentGroupKey: CryptoKey,
+  currentGroupKey: CryptoKey,
   {
     keyManagementService,
     groupSyncRepository,
     pinRepository,
+    groupName,
     onProgress,
   }: {
     keyManagementService: KeyManagementService;
     groupSyncRepository: GroupSyncRepository;
     pinRepository: PinRepository;
+    /** 復号済みグループ名（新鍵で再暗号化してサーバーに送る） */
+    groupName: string;
     onProgress?: (current: number, total: number) => void;
   }
 ): Promise<{ newGroupKey: CryptoKey; newKeyVersion: number }> {
+  void currentGroupKey; // 将来の追加処理用（現在は新鍵で再暗号化のみ）
   const newKeyVersion = currentKeyVersion + 1;
 
   // 1. 新グループ鍵を生成
@@ -141,8 +145,19 @@ export async function rotateGroupKey(
     onProgress?.(current, total);
   }
 
-  // 4. サーバーの key_version を更新
-  await groupSyncRepository.rotateGroupKey(groupId, { newKeyVersion, wrappedKeys });
+  // 4. グループ名を新鍵で再暗号化
+  const { ciphertext: encryptedName, iv: nameIv } = await keyManagementService.encryptWithGroupKey(
+    newGroupKey,
+    groupName
+  );
+
+  // 5. サーバーの key_version・encrypted_name を更新
+  await groupSyncRepository.rotateGroupKey(groupId, {
+    newKeyVersion,
+    wrappedKeys,
+    encryptedName,
+    nameIv,
+  });
 
   return { newGroupKey, newKeyVersion };
 }

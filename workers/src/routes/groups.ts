@@ -456,17 +456,23 @@ async function handleRotateKey(
     return jsonResponse({ error: "Invalid JSON" }, 400, origin, env.CORS_ORIGIN);
   }
 
-  const { newKeyVersion, wrappedKeys } = body as {
+  const { newKeyVersion, wrappedKeys, encryptedName, nameIv } = body as {
     newKeyVersion?: unknown;
     wrappedKeys?: unknown;
+    encryptedName?: unknown;
+    nameIv?: unknown;
   };
   if (
     typeof newKeyVersion !== "number" ||
     !Array.isArray(wrappedKeys) ||
-    wrappedKeys.some((k) => typeof k.userId !== "string" || typeof k.wrappedGroupKey !== "string")
+    wrappedKeys.some(
+      (k) => typeof k.userId !== "string" || typeof k.wrappedGroupKey !== "string"
+    ) ||
+    typeof encryptedName !== "string" ||
+    typeof nameIv !== "string"
   ) {
     return jsonResponse(
-      { error: "newKeyVersion (number) and wrappedKeys (array) required" },
+      { error: "newKeyVersion, wrappedKeys, encryptedName, nameIv required" },
       400,
       origin,
       env.CORS_ORIGIN
@@ -484,10 +490,9 @@ async function handleRotateKey(
 
   const now = new Date().toISOString();
   const statements = [
-    env.DB.prepare(`UPDATE family_groups SET key_version = ? WHERE id = ?`).bind(
-      newKeyVersion,
-      groupId
-    ),
+    env.DB.prepare(
+      `UPDATE family_groups SET key_version = ?, encrypted_name = ?, name_iv = ? WHERE id = ?`
+    ).bind(newKeyVersion, encryptedName, nameIv, groupId),
     ...(wrappedKeys as Array<{ userId: string; wrappedGroupKey: string }>).map((k) =>
       env.DB.prepare(
         `INSERT OR REPLACE INTO group_member_keys (group_id, user_id, key_version, wrapped_group_key, created_at)

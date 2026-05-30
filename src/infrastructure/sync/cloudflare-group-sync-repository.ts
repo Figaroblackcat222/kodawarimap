@@ -197,10 +197,12 @@ export const cloudflareGroupSyncRepository: GroupSyncRepository = {
     return d.keys;
   },
 
-  async rotateGroupKey(groupId, { newKeyVersion, wrappedKeys }) {
+  async rotateGroupKey(groupId, { newKeyVersion, wrappedKeys, encryptedName, nameIv }) {
     const res = await postJson(`${API_BASE}/api/groups/${groupId}/rotate-key`, {
       newKeyVersion,
       wrappedKeys,
+      encryptedName,
+      nameIv,
     });
     if (!res.ok) {
       const d = (await res.json().catch(() => ({}))) as { error?: string };

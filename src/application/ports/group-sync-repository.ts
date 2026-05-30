@@ -121,6 +121,8 @@ export interface GroupSyncRepository {
     data: {
       newKeyVersion: number;
       wrappedKeys: Array<{ userId: string; wrappedGroupKey: string }>;
+      encryptedName: string;
+      nameIv: string;
     }
   ): Promise<void>;
 }

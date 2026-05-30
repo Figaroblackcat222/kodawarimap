@@ -236,6 +236,7 @@ export function FamilyGroupSheet({
           keyManagementService,
           groupSyncRepository,
           pinRepository,
+          groupName: selectedGroup.name,
           onProgress: (current, total) => setRotateProgress({ current, total }),
         }
       );
