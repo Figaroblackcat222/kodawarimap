@@ -67,6 +67,10 @@ function createMockSyncRepository(records: PinSyncRecord[] = []): SyncRepository
     verifyPasskeyAuth: vi.fn().mockRejectedValue(new Error("Not implemented")),
     listPasskeyCredentials: vi.fn().mockResolvedValue([]),
     deletePasskeyCredential: vi.fn().mockResolvedValue(undefined),
+    getInviteInfo: vi.fn().mockResolvedValue({ email: "", isPendingSetup: false }),
+    activateInvite: vi
+      .fn()
+      .mockResolvedValue({ accessToken: "", refreshToken: "", salt: "", plan: "free", role: "user" }),
   };
 }
 
