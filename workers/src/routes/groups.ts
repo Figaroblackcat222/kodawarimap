@@ -247,7 +247,7 @@ export async function handleGroups(request: Request, env: Env, path: string): Pr
       const provisionalId = crypto.randomUUID();
       await env.DB.prepare(
         `INSERT INTO users (id, email, password_hash, salt, plan, role, status, created_at, updated_at)
-         VALUES (?, ?, NULL, NULL, 'free', 'user', 'pending_setup', ?, ?)`
+         VALUES (?, ?, '', '', 'free', 'user', 'pending_setup', ?, ?)`
       )
         .bind(provisionalId, inviteeEmail.toLowerCase(), now, now)
         .run();

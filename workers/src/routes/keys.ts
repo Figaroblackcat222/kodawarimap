@@ -14,11 +14,11 @@ export async function handleKeys(request: Request, env: Env, path: string): Prom
   const origin = request.headers.get("Origin");
 
   // PUT /api/keys/public
+  // requirePro は不要: 公開鍵登録はグループ招待フローの前提条件であり、
+  // free ユーザー（招待受諾直後）も実行できる必要がある
   if (request.method === "PUT" && path === "/api/keys/public") {
     const auth = await requireAuth(request, env);
     if (auth instanceof Response) return auth;
-    const denied = requirePro(auth);
-    if (denied) return denied;
 
     let body: unknown;
     try {

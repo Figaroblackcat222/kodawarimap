@@ -25537,8 +25537,6 @@ async function handleKeys(request, env2, path) {
   if (request.method === "PUT" && path === "/api/keys/public") {
     const auth = await requireAuth(request, env2);
     if (auth instanceof Response) return auth;
-    const denied = requirePro(auth);
-    if (denied) return denied;
     let body;
     try {
       body = await request.json();
@@ -25828,7 +25826,7 @@ async function handleGroups(request, env2, path) {
       const provisionalId = crypto.randomUUID();
       await env2.DB.prepare(
         `INSERT INTO users (id, email, password_hash, salt, plan, role, status, created_at, updated_at)
-         VALUES (?, ?, NULL, NULL, 'free', 'user', 'pending_setup', ?, ?)`
+         VALUES (?, ?, '', '', 'free', 'user', 'pending_setup', ?, ?)`
       )
         .bind(provisionalId, inviteeEmail.toLowerCase(), now, now)
         .run();
