@@ -104,15 +104,22 @@ export async function unsharePin(
     JSON.stringify(tombstonePayload)
   );
 
-  await groupSyncRepo.pushGroupPin(groupId, pin.id, {
-    encryptedPayload: groupCiphertext,
-    iv: groupIv,
-    hlcPhysical: tombstoneHlc.physical,
-    hlcLogical: tombstoneHlc.logical,
-    hlcNodeId: tombstoneHlc.nodeId,
-    isDeleted: true,
-    keyVersion,
-  });
+  // tombstone push が 403（グループ削除済み・非メンバー）の場合はスキップして個人側を復元する。
+  // グループ自体がなければ他メンバーも存在しないため tombstone は不要。
+  try {
+    await groupSyncRepo.pushGroupPin(groupId, pin.id, {
+      encryptedPayload: groupCiphertext,
+      iv: groupIv,
+      hlcPhysical: tombstoneHlc.physical,
+      hlcLogical: tombstoneHlc.logical,
+      hlcNodeId: tombstoneHlc.nodeId,
+      isDeleted: true,
+      keyVersion,
+    });
+  } catch (e) {
+    const is403 = e instanceof Error && e.message.includes("403");
+    if (!is403) throw e;
+  }
 
   // 個人 sync に pin を re-push（space なし）
   const personalHlc = nextHlc(tombstoneHlc);
