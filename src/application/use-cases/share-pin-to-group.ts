@@ -54,7 +54,6 @@ export async function sharePinToGroup(
   groupId: string,
   keyVersion: number,
   groupKey: CryptoKey,
-  nodeId: string,
   keyMgmt: KeyManagementService,
   groupSyncRepo: GroupSyncRepository,
   pinRepo: PinRepository,
