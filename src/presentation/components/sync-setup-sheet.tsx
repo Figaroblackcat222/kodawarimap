@@ -275,13 +275,8 @@ export function SyncSetupSheet({
       authService.savePlan(result.plan);
       authService.saveRole(result.role);
       const key = await _deriveKeyDirectly(passphrase, result.salt);
-      const credentials = await cloudflareSyncRepository.listPasskeyCredentials();
-      if (credentials.length === 0) {
-        setPendingCryptoKey(key);
-        setPasskeyRegDeviceName(getDefaultDeviceName());
-        setForcePasskeyRegister(true);
-        return;
-      }
+      // 招待メンバーはまだ free プラン（seat 付与前）のため listPasskeyCredentials が
+      // pro_required で失敗する。パスキー登録は seat 付与後の次回ログイン時に促す。
       onSuccess(key);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "参加に失敗しました");
